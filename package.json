@@ -1,0 +1,20 @@
+{
+  "name": "volley-fire-ai-keys",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An API key rotation gateway for AI agents and services.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply volley-fire-ai-keys --local",
+    "db:migrate:remote": "wrangler d1 migrations apply volley-fire-ai-keys --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260504.1",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.87.0"
+  }
+}

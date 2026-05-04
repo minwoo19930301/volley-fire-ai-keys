@@ -1,0 +1,3 @@
+ENCRYPTION_KEY_B64="replace-with-32-random-bytes-base64"
+SESSION_SECRET="replace-with-long-random-session-secret"
+TOKEN_PEPPER="replace-with-long-random-token-pepper"
