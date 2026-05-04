@@ -1,0 +1,3 @@
+# Gemini Instructions
+
+Follow the shared repository instructions in [AGENTS.md](./AGENTS.md).
