@@ -40,6 +40,7 @@ Supported platforms are stored as strings, so the service can work with
 
 The default deployment target is Cloudflare Workers + D1.
 
+- Live Worker: <https://volley-fire-ai-keys.minwoo19930301.workers.dev>
 - Workers hosts the admin UI and agent API.
 - D1 stores users, encrypted provider keys, access token hashes, and request
   timestamps.

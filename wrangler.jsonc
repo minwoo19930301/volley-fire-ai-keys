@@ -2,12 +2,15 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "volley-fire-ai-keys",
   "main": "src/index.ts",
+  "account_id": "82f7796f174fe6c82a36a94177c13897",
   "compatibility_date": "2026-05-05",
+  "workers_dev": true,
+  "preview_urls": true,
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "volley-fire-ai-keys",
-      "database_id": "replace-with-cloudflare-d1-database-id"
+      "database_id": "4ff924c9-6c1a-4447-bb45-f64e48df1fda"
     }
   ]
 }
