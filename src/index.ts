@@ -46,7 +46,6 @@ const HTML_HEADERS = {
 const SESSION_COOKIE = "vf_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const MIN_PASSWORD_LENGTH = 8;
-const PASSWORD_ITERATIONS = 210000;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -176,7 +175,7 @@ async function createUser(request: Request, env: Env): Promise<Response> {
     return html(signupPage("An account with that email already exists."), 409);
   }
 
-  const passwordHash = await hashPassword(password);
+  const passwordHash = await hashPassword(password, env);
   await env.DB.prepare("INSERT INTO users (email, password_hash) VALUES (?, ?)")
     .bind(email, passwordHash)
     .run();
@@ -203,7 +202,7 @@ async function login(request: Request, env: Env): Promise<Response> {
     .bind(email)
     .first<User & { password_hash: string }>();
 
-  if (!row || !(await verifyPassword(password, row.password_hash))) {
+  if (!row || !(await verifyPassword(password, row.password_hash, env))) {
     return html(loginPage("Invalid email or password."), 401);
   }
 
@@ -407,22 +406,34 @@ function readBearerToken(request: Request): string | null {
   return token;
 }
 
-async function hashPassword(password: string): Promise<string> {
+async function hashPassword(password: string, env: Env): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await pbkdf2(password, salt, PASSWORD_ITERATIONS);
+  const saltText = bytesToBase64Url(salt);
+  const hash = await hmacSha256Base64Url(
+    `${saltText}.${password}`,
+    env.SESSION_SECRET
+  );
   return [
-    "pbkdf2-sha256",
-    PASSWORD_ITERATIONS.toString(),
-    bytesToBase64(salt),
-    bytesToBase64(hash)
+    "hmac-sha256",
+    saltText,
+    hash
   ].join("$");
 }
 
 async function verifyPassword(
   password: string,
-  passwordHash: string
+  passwordHash: string,
+  env: Env
 ): Promise<boolean> {
   const parts = passwordHash.split("$");
+  if (parts[0] === "hmac-sha256" && parts.length === 3) {
+    const expected = await hmacSha256Base64Url(
+      `${parts[1]}.${password}`,
+      env.SESSION_SECRET
+    );
+    return timingSafeStringEqual(parts[2], expected);
+  }
+
   if (parts.length !== 4 || parts[0] !== "pbkdf2-sha256") return false;
 
   const iterations = Number.parseInt(parts[1], 10);
