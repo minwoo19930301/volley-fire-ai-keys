@@ -11,7 +11,7 @@ others reload.
 AI agents often need a simple, HTML-free way to retrieve a provider key for a
 specific platform. This project provides both surfaces:
 
-- a small web admin for managing provider keys and access tokens
+- a small user dashboard for managing provider keys and access tokens
 - an agent API that returns one key at a time
 
 The rotation rule is intentionally simple: select the enabled key with the
@@ -42,11 +42,10 @@ The default deployment target is Cloudflare Workers + D1.
 
 - Live Worker: <https://volley-fire.ai-keys.workers.dev>
 - `workers.dev` URLs use `<worker-name>.<account-subdomain>.workers.dev`.
-- Workers hosts the admin UI and agent API.
+- Workers hosts the user dashboard and agent API.
 - D1 stores users, encrypted provider keys, access token hashes, and request
   timestamps.
-- Workers secrets store encryption, signing, token-pepper, and first-admin setup
-  material.
+- Workers secrets store encryption, signing, and token-pepper material.
 
 Cloudflare's official free-tier references:
 
@@ -60,16 +59,14 @@ Cloudflare's official free-tier references:
   access tokens.
 - Store provider keys encrypted at rest.
 - Store access tokens as hashes.
-- Protect first-admin creation with a `SETUP_CODE` Worker secret.
 - Do not log returned provider API keys.
 - Use HTTPS and `Cache-Control: no-store` for secret-returning responses.
 
 Cloudflare API tokens are only for deploying and managing Cloudflare resources.
-Agent access tokens are created inside the Volley Fire admin UI and use the
+Agent access tokens are created inside the Volley Fire dashboard and use the
 `vf_live_...` prefix.
 
 ## Status
 
-Early but usable scaffold. The Worker includes first-user setup, admin login,
-provider key creation, access token creation, and least-recently-requested key
-rotation.
+Early but usable scaffold. The Worker includes signup, login, provider key
+creation, access token creation, and least-recently-requested key rotation.

@@ -2,7 +2,6 @@ export interface Env {
   DB: D1Database;
   ENCRYPTION_KEY_B64: string;
   SESSION_SECRET: string;
-  SETUP_CODE?: string;
   TOKEN_PEPPER: string;
 }
 
@@ -54,11 +53,11 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/") {
-      return Response.redirect(new URL("/admin", url).toString(), 302);
+      return redirect("/dashboard");
     }
 
-    if (url.pathname.startsWith("/admin")) {
-      return admin(request, env, url);
+    if (isWebAppRoute(url.pathname)) {
+      return webApp(request, env, url);
     }
 
     if (request.method === "GET" && url.pathname === "/api/health") {
@@ -74,92 +73,107 @@ export default {
   }
 };
 
-async function admin(
+function isWebAppRoute(pathname: string): boolean {
+  return (
+    pathname === "/signup" ||
+    pathname === "/login" ||
+    pathname === "/logout" ||
+    pathname === "/dashboard" ||
+    pathname.startsWith("/dashboard/") ||
+    pathname === "/admin" ||
+    pathname.startsWith("/admin/")
+  );
+}
+
+async function webApp(
   request: Request,
   env: Env,
   url: URL
 ): Promise<Response> {
-  const userCount = await countUsers(env);
-
-  if (userCount === 0) {
-    if (request.method === "POST" && url.pathname === "/admin/setup") {
-      return createFirstUser(request, env);
-    }
-
-    if (request.method === "GET" && url.pathname === "/admin") {
-      return html(setupPage());
-    }
-
-    return redirect("/admin");
+  if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+    return redirect("/dashboard");
   }
 
-  if (request.method === "POST" && url.pathname === "/admin/login") {
+  if (request.method === "GET" && url.pathname === "/signup") {
+    return html(signupPage());
+  }
+
+  if (request.method === "POST" && url.pathname === "/signup") {
+    return createUser(request, env);
+  }
+
+  if (request.method === "GET" && url.pathname === "/login") {
+    const user = await requireUser(request, env);
+    return user ? redirect("/dashboard") : html(loginPage());
+  }
+
+  if (request.method === "POST" && url.pathname === "/login") {
     return login(request, env);
   }
 
-  if (request.method === "POST" && url.pathname === "/admin/logout") {
-    return redirect("/admin", clearSessionCookie());
+  if (request.method === "POST" && url.pathname === "/logout") {
+    return redirect("/login", clearSessionCookie());
   }
 
   const user = await requireUser(request, env);
   if (!user) {
-    if (request.method === "GET" && url.pathname === "/admin") {
-      return html(loginPage());
-    }
-
-    return redirect("/admin");
+    return redirect("/login");
   }
 
-  if (request.method === "POST" && url.pathname === "/admin/api-keys") {
+  if (request.method === "POST" && url.pathname === "/dashboard/api-keys") {
     return createApiKey(request, env, user);
   }
 
-  if (request.method === "POST" && url.pathname === "/admin/api-keys/delete") {
+  if (
+    request.method === "POST" &&
+    url.pathname === "/dashboard/api-keys/delete"
+  ) {
     return deleteApiKey(request, env, user);
   }
 
-  if (request.method === "POST" && url.pathname === "/admin/access-tokens") {
+  if (
+    request.method === "POST" &&
+    url.pathname === "/dashboard/access-tokens"
+  ) {
     return createAccessToken(request, env, user);
   }
 
   if (
     request.method === "POST" &&
-    url.pathname === "/admin/access-tokens/delete"
+    url.pathname === "/dashboard/access-tokens/delete"
   ) {
     return deleteAccessToken(request, env, user);
   }
 
-  if (request.method === "GET" && url.pathname === "/admin") {
+  if (request.method === "GET" && url.pathname === "/dashboard") {
     return renderDashboard(env, user);
   }
 
-  return redirect("/admin");
+  return redirect("/dashboard");
 }
 
-async function createFirstUser(request: Request, env: Env): Promise<Response> {
+async function createUser(request: Request, env: Env): Promise<Response> {
   const form = await request.formData();
   const email = formText(form, "email").toLowerCase();
   const password = formRawText(form, "password");
-  const setupCode = formRawText(form, "setupCode").trim();
-
-  if (!env.SETUP_CODE) {
-    return html(
-      setupPage("Set the SETUP_CODE Worker secret before creating the first admin."),
-      500
-    );
-  }
-
-  if (!timingSafeStringEqual(setupCode, env.SETUP_CODE)) {
-    return html(setupPage("Invalid setup code."), 401);
-  }
 
   if (!isValidEmail(email) || password.length < MIN_PASSWORD_LENGTH) {
     return html(
-      setupPage(
+      signupPage(
         `Use an email address and a password with at least ${MIN_PASSWORD_LENGTH} characters.`
       ),
       400
     );
+  }
+
+  const existingUser = await env.DB.prepare(
+    "SELECT id FROM users WHERE email = ? LIMIT 1"
+  )
+    .bind(email)
+    .first<{ id: number }>();
+
+  if (existingUser) {
+    return html(signupPage("An account with that email already exists."), 409);
   }
 
   const passwordHash = await hashPassword(password);
@@ -173,9 +187,9 @@ async function createFirstUser(request: Request, env: Env): Promise<Response> {
     .bind(email)
     .first<User>();
 
-  if (!user) return html(setupPage("Could not create the first user."), 500);
+  if (!user) return html(signupPage("Could not create your account."), 500);
 
-  return redirect("/admin", await createSessionCookie(user.id, env));
+  return redirect("/dashboard", await createSessionCookie(user.id, env));
 }
 
 async function login(request: Request, env: Env): Promise<Response> {
@@ -193,7 +207,7 @@ async function login(request: Request, env: Env): Promise<Response> {
     return html(loginPage("Invalid email or password."), 401);
   }
 
-  return redirect("/admin", await createSessionCookie(row.id, env));
+  return redirect("/dashboard", await createSessionCookie(row.id, env));
 }
 
 async function createApiKey(
@@ -221,7 +235,7 @@ async function createApiKey(
     .bind(user.id, platform, label, encryptedApiKey)
     .run();
 
-  return redirect("/admin");
+  return redirect("/dashboard");
 }
 
 async function deleteApiKey(
@@ -238,7 +252,7 @@ async function deleteApiKey(
       .run();
   }
 
-  return redirect("/admin");
+  return redirect("/dashboard");
 }
 
 async function createAccessToken(
@@ -287,7 +301,7 @@ async function deleteAccessToken(
       .run();
   }
 
-  return redirect("/admin");
+  return redirect("/dashboard");
 }
 
 async function rotate(
@@ -383,13 +397,6 @@ async function requireUser(request: Request, env: Env): Promise<User | null> {
     .first<User>();
 
   return user ?? null;
-}
-
-async function countUsers(env: Env): Promise<number> {
-  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM users").first<{
-    count: number;
-  }>();
-  return row?.count ?? 0;
 }
 
 function readBearerToken(request: Request): string | null {
@@ -667,12 +674,12 @@ function redirect(path: string, setCookie?: string): Response {
   return new Response(null, { status: 303, headers });
 }
 
-function setupPage(error?: string): string {
+function signupPage(error?: string): string {
   return layout({
-    title: "Set Up Admin",
+    title: "Create Account",
     body: `
       ${alertHtml(error, "error")}
-      <form class="panel auth" method="post" action="/admin/setup">
+      <form class="panel auth" method="post" action="/signup">
         <label>
           Email
           <input name="email" type="email" autocomplete="email" required>
@@ -681,11 +688,8 @@ function setupPage(error?: string): string {
           Password
           <input name="password" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" required>
         </label>
-        <label>
-          Setup code
-          <input name="setupCode" type="password" autocomplete="one-time-code" required>
-        </label>
-        <button type="submit">Create admin</button>
+        <button type="submit">Create account</button>
+        <p>Already have an account? <a href="/login">Log in</a>.</p>
       </form>
     `
   });
@@ -693,10 +697,10 @@ function setupPage(error?: string): string {
 
 function loginPage(error?: string): string {
   return layout({
-    title: "Admin Login",
+    title: "Log In",
     body: `
       ${alertHtml(error, "error")}
-      <form class="panel auth" method="post" action="/admin/login">
+      <form class="panel auth" method="post" action="/login">
         <label>
           Email
           <input name="email" type="email" autocomplete="email" required>
@@ -706,6 +710,7 @@ function loginPage(error?: string): string {
           <input name="password" type="password" autocomplete="current-password" required>
         </label>
         <button type="submit">Log in</button>
+        <p>No account yet? <a href="/signup">Create one</a>.</p>
       </form>
     `
   });
@@ -726,7 +731,7 @@ function dashboardPage(input: {
       ${newTokenHtml(input.newToken)}
       <section class="panel">
         <h2>Add Provider Key</h2>
-        <form class="grid-form" method="post" action="/admin/api-keys">
+        <form class="grid-form" method="post" action="/dashboard/api-keys">
           <label>
             Platform
             <input name="platform" placeholder="openai" pattern="[A-Za-z0-9._-]{1,64}" required>
@@ -750,7 +755,7 @@ function dashboardPage(input: {
 
       <section class="panel">
         <h2>Create Agent Token</h2>
-        <form class="inline-form" method="post" action="/admin/access-tokens">
+        <form class="inline-form" method="post" action="/dashboard/access-tokens">
           <label>
             Name
             <input name="name" placeholder="local-agent" required>
@@ -789,7 +794,7 @@ function keysTable(keys: ApiKeyRow[]): string {
                 <td>${escapeHtml(key.label ?? "")}</td>
                 <td>${escapeHtml(formatTimestamp(key.last_requested_at))}</td>
                 <td class="actions">
-                  <form method="post" action="/admin/api-keys/delete">
+                  <form method="post" action="/dashboard/api-keys/delete">
                     <input type="hidden" name="id" value="${key.id}">
                     <button class="secondary danger" type="submit">Delete</button>
                   </form>
@@ -823,7 +828,7 @@ function tokensTable(tokens: AccessTokenRow[]): string {
                 <td>${escapeHtml(token.name)}</td>
                 <td>${escapeHtml(formatTimestamp(token.created_at))}</td>
                 <td class="actions">
-                  <form method="post" action="/admin/access-tokens/delete">
+                  <form method="post" action="/dashboard/access-tokens/delete">
                     <input type="hidden" name="id" value="${token.id}">
                     <button class="secondary danger" type="submit">Delete</button>
                   </form>
@@ -921,6 +926,11 @@ function layout(input: {
         background: #eef1f5;
         border-radius: 4px;
         padding: 2px 5px;
+      }
+
+      a {
+        color: #174ea6;
+        font-weight: 700;
       }
 
       .userbar {
@@ -1108,7 +1118,7 @@ function headerControls(userEmail?: string): string {
   return `
     <div class="userbar">
       <span>${escapeHtml(userEmail)}</span>
-      <form method="post" action="/admin/logout">
+      <form method="post" action="/logout">
         <button class="secondary" type="submit">Sign out</button>
       </form>
     </div>
