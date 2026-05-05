@@ -46,6 +46,7 @@ const HTML_HEADERS = {
 
 const SESSION_COOKIE = "vf_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
+const MIN_PASSWORD_LENGTH = 8;
 const PASSWORD_ITERATIONS = 210000;
 
 export default {
@@ -152,9 +153,11 @@ async function createFirstUser(request: Request, env: Env): Promise<Response> {
     return html(setupPage("Invalid setup code."), 401);
   }
 
-  if (!isValidEmail(email) || password.length < 12) {
+  if (!isValidEmail(email) || password.length < MIN_PASSWORD_LENGTH) {
     return html(
-      setupPage("Use an email address and a password with at least 12 characters."),
+      setupPage(
+        `Use an email address and a password with at least ${MIN_PASSWORD_LENGTH} characters.`
+      ),
       400
     );
   }
@@ -676,7 +679,7 @@ function setupPage(error?: string): string {
         </label>
         <label>
           Password
-          <input name="password" type="password" autocomplete="new-password" minlength="12" required>
+          <input name="password" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" required>
         </label>
         <label>
           Setup code
