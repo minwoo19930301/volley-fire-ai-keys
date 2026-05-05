@@ -2,6 +2,7 @@ export interface Env {
   DB: D1Database;
   ENCRYPTION_KEY_B64: string;
   SESSION_SECRET: string;
+  SETUP_CODE?: string;
   TOKEN_PEPPER: string;
 }
 
@@ -138,6 +139,18 @@ async function createFirstUser(request: Request, env: Env): Promise<Response> {
   const form = await request.formData();
   const email = formText(form, "email").toLowerCase();
   const password = formRawText(form, "password");
+  const setupCode = formRawText(form, "setupCode").trim();
+
+  if (!env.SETUP_CODE) {
+    return html(
+      setupPage("Set the SETUP_CODE Worker secret before creating the first admin."),
+      500
+    );
+  }
+
+  if (!timingSafeStringEqual(setupCode, env.SETUP_CODE)) {
+    return html(setupPage("Invalid setup code."), 401);
+  }
 
   if (!isValidEmail(email) || password.length < 12) {
     return html(
@@ -664,6 +677,10 @@ function setupPage(error?: string): string {
         <label>
           Password
           <input name="password" type="password" autocomplete="new-password" minlength="12" required>
+        </label>
+        <label>
+          Setup code
+          <input name="setupCode" type="password" autocomplete="one-time-code" required>
         </label>
         <button type="submit">Create admin</button>
       </form>

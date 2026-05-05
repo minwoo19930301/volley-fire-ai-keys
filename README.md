@@ -40,12 +40,13 @@ Supported platforms are stored as strings, so the service can work with
 
 The default deployment target is Cloudflare Workers + D1.
 
-- Live Worker: <https://volley-fire-ai-keys.minwoo19930301.workers.dev>
+- Live Worker: <https://volley-fire.ai-keys.workers.dev>
 - `workers.dev` URLs use `<worker-name>.<account-subdomain>.workers.dev`.
 - Workers hosts the admin UI and agent API.
 - D1 stores users, encrypted provider keys, access token hashes, and request
   timestamps.
-- Workers secrets store encryption and signing material.
+- Workers secrets store encryption, signing, token-pepper, and first-admin setup
+  material.
 
 Cloudflare's official free-tier references:
 
@@ -59,6 +60,7 @@ Cloudflare's official free-tier references:
   access tokens.
 - Store provider keys encrypted at rest.
 - Store access tokens as hashes.
+- Protect first-admin creation with a `SETUP_CODE` Worker secret.
 - Do not log returned provider API keys.
 - Use HTTPS and `Cache-Control: no-store` for secret-returning responses.
 

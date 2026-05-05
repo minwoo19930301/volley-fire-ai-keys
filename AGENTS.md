@@ -22,13 +22,14 @@ agents and services.
 - Never log decrypted provider API keys.
 - Encrypt provider API keys before storage.
 - Hash access tokens before storage.
+- Protect first-admin creation with a setup secret on public deployments.
 - Return secret-bearing responses with `Cache-Control: no-store`.
 - Keep examples fake and obviously non-production.
 
 ## Cloudflare Defaults
 
 - Target Cloudflare Workers + D1.
-- Use Workers secrets for encryption and signing material.
+- Use Workers secrets for encryption, signing, token-pepper, and setup material.
 - Use D1 for users, encrypted provider keys, access token hashes, and request
   timestamps.
 - Keep the Worker deployable on Cloudflare's free tier for small personal use.
