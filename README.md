@@ -41,6 +41,7 @@ Supported platforms are stored as strings, so the service can work with
 The default deployment target is Cloudflare Workers + D1.
 
 - Live Worker: <https://volley-fire-ai-keys.minwoo19930301.workers.dev>
+- `workers.dev` URLs use `<worker-name>.<account-subdomain>.workers.dev`.
 - Workers hosts the admin UI and agent API.
 - D1 stores users, encrypted provider keys, access token hashes, and request
   timestamps.
@@ -54,13 +55,19 @@ Cloudflare's official free-tier references:
 ## Security Notes
 
 - Only store API keys and accounts you are authorized to manage.
-- Never commit real provider API keys, Cloudflare tokens, or access tokens.
+- Never commit real provider API keys, Cloudflare deployment tokens, or app
+  access tokens.
 - Store provider keys encrypted at rest.
 - Store access tokens as hashes.
 - Do not log returned provider API keys.
 - Use HTTPS and `Cache-Control: no-store` for secret-returning responses.
 
+Cloudflare API tokens are only for deploying and managing Cloudflare resources.
+Agent access tokens are created inside the Volley Fire admin UI and use the
+`vf_live_...` prefix.
+
 ## Status
 
-Early scaffold. The first milestone is a deployable Cloudflare Worker with a D1
-schema, admin UI, and least-recently-requested key rotation endpoint.
+Early but usable scaffold. The Worker includes first-user setup, admin login,
+provider key creation, access token creation, and least-recently-requested key
+rotation.
