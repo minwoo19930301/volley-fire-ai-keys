@@ -26,7 +26,7 @@ agents and services.
   session secrets.
 - Never log decrypted provider API keys.
 - Encrypt provider API keys before storage.
-- Hash access tokens before storage.
+- Hash access tokens for lookup and encrypt their display copy before storage.
 - Return secret-bearing responses with `Cache-Control: no-store`.
 - Keep examples fake and obviously non-production.
 

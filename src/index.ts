@@ -21,6 +21,7 @@ type ApiKeyRow = {
 type AccessTokenRow = {
   id: number;
   name: string;
+  encrypted_token: string | null;
   created_at: string;
 };
 
@@ -289,15 +290,17 @@ async function reissueConnectionToken(env: Env, user: User): Promise<Response> {
 async function replaceConnectionToken(env: Env, user: User): Promise<string> {
   const token = `vf_live_${randomBase64Url(32)}`;
   const tokenHash = await sha256Hex(`${env.TOKEN_PEPPER}:${token}`);
+  const encryptedToken = await encryptSecret(token, env);
 
   await env.DB.prepare("DELETE FROM access_tokens WHERE user_id = ?")
     .bind(user.id)
     .run();
 
   await env.DB.prepare(
-    "INSERT INTO access_tokens (user_id, name, token_hash) VALUES (?, ?, ?)"
+    `INSERT INTO access_tokens (user_id, name, token_hash, encrypted_token)
+     VALUES (?, ?, ?, ?)`
   )
-    .bind(user.id, "AI Connection", tokenHash)
+    .bind(user.id, "AI Connection", tokenHash, encryptedToken)
     .run();
 
   return token;
@@ -376,7 +379,7 @@ async function renderDashboard(
     .all<ApiKeyRow>();
 
   const connection = await env.DB.prepare(
-    `SELECT id, name, created_at
+    `SELECT id, name, encrypted_token, created_at
        FROM access_tokens
       WHERE user_id = ?
       ORDER BY created_at DESC, id DESC
@@ -384,6 +387,11 @@ async function renderDashboard(
   )
     .bind(user.id)
     .first<AccessTokenRow>();
+  const connectionToken =
+    newToken ??
+    (connection?.encrypted_token
+      ? await decryptSecret(connection.encrypted_token, env)
+      : undefined);
 
   return html(
     dashboardPage({
@@ -391,7 +399,7 @@ async function renderDashboard(
       keys: keys.results ?? [],
       connection,
       alert,
-      newToken
+      connectionToken
     })
   );
 }
@@ -558,6 +566,14 @@ async function hmacSha256Base64Url(
 }
 
 async function encryptApiKey(value: string, env: Env): Promise<string> {
+  return encryptSecret(value, env);
+}
+
+async function decryptApiKey(payload: string, env: Env): Promise<string> {
+  return decryptSecret(payload, env);
+}
+
+async function encryptSecret(value: string, env: Env): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await importEncryptionKey(env);
   const ciphertext = await crypto.subtle.encrypt(
@@ -572,7 +588,7 @@ async function encryptApiKey(value: string, env: Env): Promise<string> {
   });
 }
 
-async function decryptApiKey(payload: string, env: Env): Promise<string> {
+async function decryptSecret(payload: string, env: Env): Promise<string> {
   const parsed = JSON.parse(payload) as { iv: string; ciphertext: string };
   const key = await importEncryptionKey(env);
   const plaintext = await crypto.subtle.decrypt(
@@ -743,17 +759,17 @@ function dashboardPage(input: {
   keys: ApiKeyRow[];
   connection: AccessTokenRow | null;
   alert?: { kind: "error" | "success"; message: string };
-  newToken?: string;
+  connectionToken?: string;
 }): string {
   return layout({
     title: "Volley Fire AI Keys",
     userEmail: input.user.email,
     body: `
       ${alertHtml(input.alert?.message, input.alert?.kind)}
-      ${connectionPromptHtml(input.newToken)}
+      ${connectionPromptHtml(input.connectionToken)}
       <section class="panel">
         <h2>AI Connection</h2>
-        ${connectionStatusHtml(input.connection, Boolean(input.newToken))}
+        ${connectionStatusHtml(input.connection, Boolean(input.connectionToken))}
         ${reissueModalHtml()}
       </section>
 
@@ -848,7 +864,7 @@ function connectionStatusHtml(
 
   const helper = tokenWasJustShown
     ? "This is the only active token for your AI Connection."
-    : "Your AI Connection is active. The token is shown only when it is first made or reissued.";
+    : "This connection was made before token display was added. Make a new token once to keep the prompt visible here.";
 
   return `
     <div class="connection-status">

@@ -58,7 +58,8 @@ Cloudflare's official free-tier references:
 - Never commit real provider API keys, Cloudflare deployment tokens, or app
   access tokens.
 - Store provider keys encrypted at rest.
-- Store access tokens as hashes.
+- Store AI Connection tokens as hashes for lookup and encrypted values for
+  dashboard display.
 - Each user has one active AI Connection token. Reissuing it replaces the old
   token, so previous AI integrations may need the new prompt.
 - Do not log returned provider API keys.
