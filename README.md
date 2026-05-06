@@ -11,7 +11,7 @@ others reload.
 AI agents often need a simple, HTML-free way to retrieve a provider key for a
 specific platform. This project provides both surfaces:
 
-- a small user dashboard for managing provider keys and AI connection prompts
+- a small user dashboard for managing provider keys and one AI Connection prompt
 - an agent API that returns one key at a time
 
 The rotation rule is intentionally simple: select the enabled key with the
@@ -59,6 +59,8 @@ Cloudflare's official free-tier references:
   access tokens.
 - Store provider keys encrypted at rest.
 - Store access tokens as hashes.
+- Each user has one active AI Connection token. Reissuing it replaces the old
+  token, so previous AI integrations may need the new prompt.
 - Do not log returned provider API keys.
 - Use HTTPS and `Cache-Control: no-store` for secret-returning responses.
 
@@ -69,4 +71,5 @@ The dashboard creates copy-ready AI prompts that include the service's own
 ## Status
 
 Early but usable scaffold. The Worker includes signup, login, provider key
-creation, AI prompt creation, and least-recently-requested key rotation.
+creation, one-token AI Connection setup, and least-recently-requested key
+rotation.

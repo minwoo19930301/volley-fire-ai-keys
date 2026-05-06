@@ -145,16 +145,10 @@ async function webApp(
 
   if (
     request.method === "POST" &&
-    url.pathname === "/dashboard/access-tokens"
+    (url.pathname === "/dashboard/connection/reissue" ||
+      url.pathname === "/dashboard/access-tokens")
   ) {
-    return createAccessToken(request, env, user);
-  }
-
-  if (
-    request.method === "POST" &&
-    url.pathname === "/dashboard/access-tokens/delete"
-  ) {
-    return deleteAccessToken(request, env, user);
+    return reissueConnectionToken(env, user);
   }
 
   if (request.method === "GET" && url.pathname === "/dashboard") {
@@ -201,7 +195,15 @@ async function createUser(request: Request, env: Env): Promise<Response> {
 
   if (!user) return html(signupPage("Could not create your account."), 500);
 
-  return redirect("/dashboard", await createSessionCookie(user.id, env));
+  const token = await replaceConnectionToken(env, user);
+  const response = await renderDashboard(
+    env,
+    user,
+    { kind: "success", message: "Account created. Your AI Connection is ready." },
+    token
+  );
+  response.headers.set("set-cookie", await createSessionCookie(user.id, env));
+  return response;
 }
 
 async function login(request: Request, env: Env): Promise<Response> {
@@ -271,45 +273,34 @@ async function deleteApiKey(
   return redirect("/dashboard");
 }
 
-async function createAccessToken(
-  _request: Request,
-  env: Env,
-  user: User
-): Promise<Response> {
-  const name = `AI prompt ${new Date().toISOString()}`;
-
-  const token = `vf_live_${randomBase64Url(32)}`;
-  const tokenHash = await sha256Hex(`${env.TOKEN_PEPPER}:${token}`);
-
-  await env.DB.prepare(
-    "INSERT INTO access_tokens (user_id, name, token_hash) VALUES (?, ?, ?)"
-  )
-    .bind(user.id, name, tokenHash)
-    .run();
-
+async function reissueConnectionToken(env: Env, user: User): Promise<Response> {
+  const token = await replaceConnectionToken(env, user);
   return renderDashboard(
     env,
     user,
-    { kind: "success", message: "AI prompt created." },
+    {
+      kind: "success",
+      message: "AI Connection token reissued. Older AI integrations may need the new prompt."
+    },
     token
   );
 }
 
-async function deleteAccessToken(
-  request: Request,
-  env: Env,
-  user: User
-): Promise<Response> {
-  const form = await request.formData();
-  const id = Number.parseInt(formText(form, "id"), 10);
+async function replaceConnectionToken(env: Env, user: User): Promise<string> {
+  const token = `vf_live_${randomBase64Url(32)}`;
+  const tokenHash = await sha256Hex(`${env.TOKEN_PEPPER}:${token}`);
 
-  if (Number.isFinite(id)) {
-    await env.DB.prepare("DELETE FROM access_tokens WHERE id = ? AND user_id = ?")
-      .bind(id, user.id)
-      .run();
-  }
+  await env.DB.prepare("DELETE FROM access_tokens WHERE user_id = ?")
+    .bind(user.id)
+    .run();
 
-  return redirect("/dashboard");
+  await env.DB.prepare(
+    "INSERT INTO access_tokens (user_id, name, token_hash) VALUES (?, ?, ?)"
+  )
+    .bind(user.id, "AI Connection", tokenHash)
+    .run();
+
+  return token;
 }
 
 async function rotate(
@@ -324,7 +315,17 @@ async function rotate(
 
   const tokenHash = await sha256Hex(`${env.TOKEN_PEPPER}:${token}`);
   const access = await env.DB.prepare(
-    "SELECT user_id FROM access_tokens WHERE token_hash = ? LIMIT 1"
+    `SELECT token.user_id
+       FROM access_tokens token
+      WHERE token.token_hash = ?
+        AND token.id = (
+          SELECT latest.id
+            FROM access_tokens latest
+           WHERE latest.user_id = token.user_id
+           ORDER BY latest.created_at DESC, latest.id DESC
+           LIMIT 1
+        )
+      LIMIT 1`
   )
     .bind(tokenHash)
     .first<{ user_id: number }>();
@@ -374,20 +375,21 @@ async function renderDashboard(
     .bind(user.id)
     .all<ApiKeyRow>();
 
-  const tokens = await env.DB.prepare(
+  const connection = await env.DB.prepare(
     `SELECT id, name, created_at
        FROM access_tokens
       WHERE user_id = ?
-      ORDER BY created_at DESC`
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1`
   )
     .bind(user.id)
-    .all<AccessTokenRow>();
+    .first<AccessTokenRow>();
 
   return html(
     dashboardPage({
       user,
       keys: keys.results ?? [],
-      tokens: tokens.results ?? [],
+      connection,
       alert,
       newToken
     })
@@ -739,7 +741,7 @@ function loginPage(error?: string): string {
 function dashboardPage(input: {
   user: User;
   keys: ApiKeyRow[];
-  tokens: AccessTokenRow[];
+  connection: AccessTokenRow | null;
   alert?: { kind: "error" | "success"; message: string };
   newToken?: string;
 }): string {
@@ -748,7 +750,13 @@ function dashboardPage(input: {
     userEmail: input.user.email,
     body: `
       ${alertHtml(input.alert?.message, input.alert?.kind)}
-      ${newTokenHtml(input.newToken)}
+      ${connectionPromptHtml(input.newToken)}
+      <section class="panel">
+        <h2>AI Connection</h2>
+        ${connectionStatusHtml(input.connection, Boolean(input.newToken))}
+        ${reissueModalHtml()}
+      </section>
+
       <section class="panel">
         <h2>Add Provider Key</h2>
         <form class="grid-form" method="post" action="/dashboard/api-keys">
@@ -778,18 +786,6 @@ function dashboardPage(input: {
       <section class="panel">
         <h2>Provider Keys</h2>
         ${keysTable(input.keys)}
-      </section>
-
-      <section class="panel">
-        <h2>AI Prompt</h2>
-        <form class="inline-form" method="post" action="/dashboard/access-tokens">
-          <button type="submit">Create prompt</button>
-        </form>
-      </section>
-
-      <section class="panel">
-        <h2>AI Connections</h2>
-        ${tokensTable(input.tokens)}
       </section>
     `
   });
@@ -837,52 +833,63 @@ function keysTable(keys: ApiKeyRow[]): string {
   `;
 }
 
-function tokensTable(tokens: AccessTokenRow[]): string {
-  if (tokens.length === 0) return `<p class="empty">No AI connections yet.</p>`;
+function connectionStatusHtml(
+  connection: AccessTokenRow | null,
+  tokenWasJustShown: boolean
+): string {
+  if (!connection) {
+    return `
+      <p class="empty">No AI Connection yet.</p>
+      <form class="connection-actions" method="post" action="/dashboard/connection/reissue">
+        <button type="submit">Make AI Connection</button>
+      </form>
+    `;
+  }
+
+  const helper = tokenWasJustShown
+    ? "This is the only active token for your AI Connection."
+    : "Your AI Connection is active. The token is shown only when it is first made or reissued.";
 
   return `
-    <table>
-      <thead>
-        <tr>
-          <th>Prompt</th>
-          <th>Created</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tokens
-          .map(
-            (token) => `
-              <tr>
-                <td>${escapeHtml(token.name)}</td>
-                <td>${escapeHtml(formatTimestamp(token.created_at))}</td>
-                <td class="actions">
-                  <form method="post" action="/dashboard/access-tokens/delete">
-                    <input type="hidden" name="id" value="${token.id}">
-                    <button class="secondary danger" type="submit">Delete</button>
-                  </form>
-                </td>
-              </tr>
-            `
-          )
-          .join("")}
-      </tbody>
-    </table>
+    <div class="connection-status">
+      <p>${escapeHtml(helper)}</p>
+      <p>Created: ${escapeHtml(formatTimestamp(connection.created_at))}</p>
+    </div>
+    <div class="connection-actions">
+      <a href="#reissue-token" data-open-reissue>is your token stolen? make new</a>
+    </div>
   `;
 }
 
-function newTokenHtml(token?: string): string {
+function reissueModalHtml(): string {
+  return `
+    <div class="modal-backdrop" data-reissue-modal hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reissueTitle">
+        <h2 id="reissueTitle">Make a new AI Connection token?</h2>
+        <p>If you make a new token, previous AI integrations using the old prompt may stop working.</p>
+        <div class="modal-actions">
+          <button class="secondary" type="button" data-close-reissue>Cancel</button>
+          <form method="post" action="/dashboard/connection/reissue">
+            <button class="danger-button" type="submit">Make new token</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function connectionPromptHtml(token?: string): string {
   if (!token) return "";
 
-  const prompt = `Use this API key gateway whenever you need an AI provider API key.
+  const prompt = `Use this AI Connection whenever you need an AI provider API key.
 
 Base URL: ${PUBLIC_BASE_URL}
 Authorization: Bearer ${token}
 
-To get a key, call:
+To get a provider key, call:
 GET ${PUBLIC_BASE_URL}/api/rotate/{platform}
 
-Use platform names like openai, anthropic, google, openrouter, xai, deepseek, groq, mistral, perplexity, or cohere. Read the JSON response and use only the apiKey value. Do not print, log, or expose the bearer token or returned apiKey.`;
+Use platform names like openai, anthropic, google, openrouter, xai, deepseek, groq, mistral, perplexity, or cohere. This is the only active bearer token for this account. Read the JSON response and use only the apiKey value. Do not print, log, or expose the bearer token or returned apiKey.`;
 
   return `
     <section class="panel token-output">
@@ -1040,6 +1047,10 @@ function layout(input: {
         color: #9f1f1f;
       }
 
+      .danger-button {
+        background: #9f1f1f;
+      }
+
       .grid-form {
         display: grid;
         gap: 14px;
@@ -1060,6 +1071,52 @@ function layout(input: {
         gap: 12px;
         grid-template-columns: minmax(220px, 360px) auto;
         justify-content: start;
+      }
+
+      .connection-status p:first-child {
+        margin-top: 0;
+      }
+
+      .connection-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 16px;
+      }
+
+      .connection-actions form,
+      .modal-actions form {
+        margin: 0;
+      }
+
+      .modal-backdrop {
+        align-items: center;
+        background: rgba(25, 33, 42, 0.46);
+        display: flex;
+        inset: 0;
+        justify-content: center;
+        padding: 20px;
+        position: fixed;
+        z-index: 10;
+      }
+
+      .modal-backdrop[hidden] {
+        display: none;
+      }
+
+      .modal {
+        background: #ffffff;
+        border-radius: 8px;
+        box-shadow: 0 18px 48px rgba(25, 33, 42, 0.24);
+        max-width: 460px;
+        padding: 20px;
+        width: 100%;
+      }
+
+      .modal-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 18px;
       }
 
       table {
@@ -1126,6 +1183,7 @@ function layout(input: {
       @media (max-width: 720px) {
         header,
         .userbar,
+        .modal-actions,
         .inline-form,
         .grid-form {
           align-items: stretch;
@@ -1167,6 +1225,32 @@ function layout(input: {
       if (platformPreset) {
         platformPreset.addEventListener("change", syncPlatformInput);
         syncPlatformInput();
+      }
+
+      const reissueModal = document.querySelector("[data-reissue-modal]");
+      const openReissue = document.querySelector("[data-open-reissue]");
+      const closeReissue = document.querySelector("[data-close-reissue]");
+
+      function setReissueModalOpen(isOpen) {
+        if (!reissueModal) return;
+        reissueModal.hidden = !isOpen;
+      }
+
+      if (openReissue) {
+        openReissue.addEventListener("click", (event) => {
+          event.preventDefault();
+          setReissueModalOpen(true);
+        });
+      }
+
+      if (closeReissue) {
+        closeReissue.addEventListener("click", () => setReissueModalOpen(false));
+      }
+
+      if (reissueModal) {
+        reissueModal.addEventListener("click", (event) => {
+          if (event.target === reissueModal) setReissueModalOpen(false);
+        });
       }
     </script>
   </body>
