@@ -13,6 +13,8 @@ agents and services.
 - Do not expose provider key database ids in the agent API.
 - Do not add `cooldown_until`, cycle state, `disabled_at`, or `revoked_at` in v1.
 - Use `access_tokens` for the service's own bearer tokens.
+- In user-facing UI, present access-token creation as copy-ready AI prompt
+  creation.
 - Delete keys and access tokens in v1 instead of soft-disabling them.
 
 ## Security Rules

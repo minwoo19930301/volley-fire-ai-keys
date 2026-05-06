@@ -38,7 +38,7 @@ const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
   "content-security-policy":
-    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff"
 };
@@ -46,6 +46,19 @@ const HTML_HEADERS = {
 const SESSION_COOKIE = "vf_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const MIN_PASSWORD_LENGTH = 8;
+const PUBLIC_BASE_URL = "https://volley-fire.ai-keys.workers.dev";
+const PLATFORM_OPTIONS = [
+  ["openai", "OpenAI"],
+  ["anthropic", "Anthropic"],
+  ["google", "Google Gemini"],
+  ["openrouter", "OpenRouter"],
+  ["xai", "xAI"],
+  ["deepseek", "DeepSeek"],
+  ["groq", "Groq"],
+  ["mistral", "Mistral"],
+  ["perplexity", "Perplexity"],
+  ["cohere", "Cohere"]
+] as const;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -215,7 +228,11 @@ async function createApiKey(
   user: User
 ): Promise<Response> {
   const form = await request.formData();
-  const platform = formText(form, "platform").toLowerCase();
+  const platformPreset = formText(form, "platform").toLowerCase();
+  const platform =
+    platformPreset === "custom"
+      ? formText(form, "customPlatform").toLowerCase()
+      : platformPreset;
   const label = formText(form, "label") || null;
   const apiKey = formRawText(form, "apiKey").trim();
 
@@ -255,19 +272,11 @@ async function deleteApiKey(
 }
 
 async function createAccessToken(
-  request: Request,
+  _request: Request,
   env: Env,
   user: User
 ): Promise<Response> {
-  const form = await request.formData();
-  const name = formText(form, "name");
-
-  if (!name) {
-    return renderDashboard(env, user, {
-      kind: "error",
-      message: "Use a token name."
-    });
-  }
+  const name = `AI prompt ${new Date().toISOString()}`;
 
   const token = `vf_live_${randomBase64Url(32)}`;
   const tokenHash = await sha256Hex(`${env.TOKEN_PEPPER}:${token}`);
@@ -281,7 +290,7 @@ async function createAccessToken(
   return renderDashboard(
     env,
     user,
-    { kind: "success", message: "Access token created." },
+    { kind: "success", message: "AI prompt created." },
     token
   );
 }
@@ -745,7 +754,14 @@ function dashboardPage(input: {
         <form class="grid-form" method="post" action="/dashboard/api-keys">
           <label>
             Platform
-            <input name="platform" placeholder="openai" pattern="[A-Za-z0-9._-]{1,64}" required>
+            <select id="platformPreset" name="platform" required>
+              ${platformOptionsHtml()}
+              <option value="custom">Custom...</option>
+            </select>
+          </label>
+          <label id="customPlatformField" class="is-hidden">
+            Custom platform
+            <input id="customPlatformInput" name="customPlatform" placeholder="provider-name" pattern="[A-Za-z0-9._-]{1,64}">
           </label>
           <label>
             Label
@@ -765,22 +781,24 @@ function dashboardPage(input: {
       </section>
 
       <section class="panel">
-        <h2>Create Agent Token</h2>
+        <h2>AI Prompt</h2>
         <form class="inline-form" method="post" action="/dashboard/access-tokens">
-          <label>
-            Name
-            <input name="name" placeholder="local-agent" required>
-          </label>
-          <button type="submit">Create token</button>
+          <button type="submit">Create prompt</button>
         </form>
       </section>
 
       <section class="panel">
-        <h2>Access Tokens</h2>
+        <h2>AI Connections</h2>
         ${tokensTable(input.tokens)}
       </section>
     `
   });
+}
+
+function platformOptionsHtml(): string {
+  return PLATFORM_OPTIONS.map(
+    ([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`
+  ).join("");
 }
 
 function keysTable(keys: ApiKeyRow[]): string {
@@ -820,13 +838,13 @@ function keysTable(keys: ApiKeyRow[]): string {
 }
 
 function tokensTable(tokens: AccessTokenRow[]): string {
-  if (tokens.length === 0) return `<p class="empty">No tokens yet.</p>`;
+  if (tokens.length === 0) return `<p class="empty">No AI connections yet.</p>`;
 
   return `
     <table>
       <thead>
         <tr>
-          <th>Name</th>
+          <th>Prompt</th>
           <th>Created</th>
           <th></th>
         </tr>
@@ -856,11 +874,20 @@ function tokensTable(tokens: AccessTokenRow[]): string {
 function newTokenHtml(token?: string): string {
   if (!token) return "";
 
+  const prompt = `Use this API key gateway whenever you need an AI provider API key.
+
+Base URL: ${PUBLIC_BASE_URL}
+Authorization: Bearer ${token}
+
+To get a key, call:
+GET ${PUBLIC_BASE_URL}/api/rotate/{platform}
+
+Use platform names like openai, anthropic, google, openrouter, xai, deepseek, groq, mistral, perplexity, or cohere. Read the JSON response and use only the apiKey value. Do not print, log, or expose the bearer token or returned apiKey.`;
+
   return `
     <section class="panel token-output">
-      <h2>New Access Token</h2>
-      <input readonly value="${escapeHtml(token)}">
-      <p>Copy this token now. It will not be shown again.</p>
+      <h2>Copy This Prompt</h2>
+      <textarea readonly rows="11">${escapeHtml(prompt)}</textarea>
     </section>
   `;
 }
@@ -976,6 +1003,7 @@ function layout(input: {
       }
 
       input,
+      select,
       textarea {
         border: 1px solid #c8d0dc;
         border-radius: 6px;
@@ -1069,6 +1097,10 @@ function layout(input: {
         margin: 0;
       }
 
+      .is-hidden {
+        display: none;
+      }
+
       .alert {
         border-radius: 6px;
         font-size: 14px;
@@ -1087,7 +1119,7 @@ function layout(input: {
         color: #1f6f43;
       }
 
-      .token-output input {
+      .token-output textarea {
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       }
 
@@ -1119,6 +1151,24 @@ function layout(input: {
       </header>
       ${input.body}
     </main>
+    <script>
+      const platformPreset = document.getElementById("platformPreset");
+      const customPlatformField = document.getElementById("customPlatformField");
+      const customPlatformInput = document.getElementById("customPlatformInput");
+
+      function syncPlatformInput() {
+        if (!platformPreset || !customPlatformField || !customPlatformInput) return;
+        const isCustom = platformPreset.value === "custom";
+        customPlatformField.classList.toggle("is-hidden", !isCustom);
+        customPlatformInput.required = isCustom;
+        if (isCustom) customPlatformInput.focus();
+      }
+
+      if (platformPreset) {
+        platformPreset.addEventListener("change", syncPlatformInput);
+        syncPlatformInput();
+      }
+    </script>
   </body>
 </html>`;
 }

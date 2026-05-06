@@ -11,7 +11,7 @@ others reload.
 AI agents often need a simple, HTML-free way to retrieve a provider key for a
 specific platform. This project provides both surfaces:
 
-- a small user dashboard for managing provider keys and access tokens
+- a small user dashboard for managing provider keys and AI connection prompts
 - an agent API that returns one key at a time
 
 The rotation rule is intentionally simple: select the enabled key with the
@@ -63,10 +63,10 @@ Cloudflare's official free-tier references:
 - Use HTTPS and `Cache-Control: no-store` for secret-returning responses.
 
 Cloudflare API tokens are only for deploying and managing Cloudflare resources.
-Agent access tokens are created inside the Volley Fire dashboard and use the
-`vf_live_...` prefix.
+The dashboard creates copy-ready AI prompts that include the service's own
+`vf_live_...` bearer credential.
 
 ## Status
 
 Early but usable scaffold. The Worker includes signup, login, provider key
-creation, access token creation, and least-recently-requested key rotation.
+creation, AI prompt creation, and least-recently-requested key rotation.
