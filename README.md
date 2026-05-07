@@ -21,8 +21,6 @@ When that provider key is blocked, exhausted, or no longer useful, the app asks
 Volley Fire AI Keys again. The gateway returns the next least-recently-requested
 key, and the app repeats the same provider call with a fresh key.
 
-![Volley Fire AI Keys third-party app flow](assets/volley-fire-flow.png)
-
 ## Rotation Rule
 
 - Return one provider key per rotate request.
