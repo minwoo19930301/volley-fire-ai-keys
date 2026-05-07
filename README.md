@@ -2,23 +2,36 @@
 
 An API key rotation gateway for AI agents and services.
 
-Volley Fire AI Keys keeps a per-user pool of provider API keys and returns the
-least-recently-requested key for a requested platform. One key fires while the
-others reload.
+![Volley Fire AI Keys three-rank rotation diagram](assets/volley-fire-rotation.png)
 
-## Why
+Volley Fire AI Keys gives agents one stable AI Connection token. When an
+external app or AI agent asks for a provider key, the Worker returns one
+least-recently-requested key for that platform and updates its request
+timestamp. The gateway does not call providers; it only hands out the next key
+for the caller to use.
 
-AI agents often need a simple, HTML-free way to retrieve a provider key for a
-specific platform. This project provides both surfaces:
+## How It Works
 
-- a small user dashboard for managing provider keys and one AI Connection prompt
-- an agent API that returns one key at a time
+Add several free or low-quota provider API keys to the dashboard under the same
+platform. Your third-party app or AI agent keeps one AI Connection token for
+Volley Fire AI Keys, asks the gateway for a provider key, then uses that key
+with the real AI service.
 
-The rotation rule is intentionally simple: select the enabled key with the
-oldest `last_requested_at`, with keys that have never been requested first.
-There is no public `keyId`, no `cooldown_until`, and no cycle state in v1.
+When that provider key is blocked, exhausted, or no longer useful, the app asks
+Volley Fire AI Keys again. The gateway returns the next least-recently-requested
+key, and the app repeats the same provider call with a fresh key.
 
-## API Preview
+![Volley Fire AI Keys third-party app flow](assets/volley-fire-flow.png)
+
+## Rotation Rule
+
+- Return one provider key per rotate request.
+- Rotate keys by `last_requested_at`.
+- Treat `NULL last_requested_at` as the oldest state.
+- Keep v1 state simple: no cooldowns, cycles, disabled flags, or soft revokes.
+- Delete provider keys and AI Connection tokens when removing them.
+
+## Agent API
 
 ```http
 GET /api/rotate/openai
@@ -28,49 +41,80 @@ Authorization: Bearer vf_live_xxxxx
 ```json
 {
   "platform": "openai",
-  "apiKey": "sk-...",
+  "apiKey": "sk-fake-example",
   "requestedAt": "2026-05-05T00:00:00.000Z"
 }
 ```
 
-Supported platforms are stored as strings, so the service can work with
-`openai`, `google`, `anthropic`, `xai`, or any other provider label.
+Use platform names such as `openai`, `anthropic`, `google`, `openrouter`,
+`xai`, `deepseek`, `groq`, `mistral`, `perplexity`, or `cohere`.
 
-## Deployment Target
+## Dashboard
 
-The default deployment target is Cloudflare Workers + D1.
+The dashboard is for:
 
-- Live Worker: <https://volley-fire.ai-keys.workers.dev>
-- `workers.dev` URLs use `<worker-name>.<account-subdomain>.workers.dev`.
-- Workers hosts the user dashboard and agent API.
-- D1 stores users, encrypted provider keys, access token hashes, and request
-  timestamps.
-- Workers secrets store encryption, signing, and token-pepper material.
+- adding encrypted provider keys
+- deleting provider keys
+- copying the user's AI Connection prompt
+- reissuing the single active AI Connection token
 
-Cloudflare's official free-tier references:
+Reissuing an AI Connection token replaces the previous token. Existing AI
+integrations may stop working until they use the new prompt.
 
-- [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
-- [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/)
+## Local Setup
 
-## Security Notes
+Install dependencies:
 
-- Only store API keys and accounts you are authorized to manage.
-- Never commit real provider API keys, Cloudflare deployment tokens, or app
-  access tokens.
-- Store provider keys encrypted at rest.
-- Store AI Connection tokens as hashes for lookup and encrypted values for
-  dashboard display.
-- Each user has one active AI Connection token. Reissuing it replaces the old
-  token, so previous AI integrations may need the new prompt.
-- Do not log returned provider API keys.
-- Use HTTPS and `Cache-Control: no-store` for secret-returning responses.
+```sh
+npm install
+```
 
-Cloudflare API tokens are only for deploying and managing Cloudflare resources.
-The dashboard creates copy-ready AI prompts that include the service's own
-`vf_live_...` bearer credential.
+Create local secrets:
 
-## Status
+```sh
+cp .dev.vars.example .dev.vars
+```
 
-Early but usable scaffold. The Worker includes signup, login, provider key
-creation, one-token AI Connection setup, and least-recently-requested key
-rotation.
+Set real local values for:
+
+- `ENCRYPTION_KEY_B64`
+- `SESSION_SECRET`
+- `TOKEN_PEPPER`
+
+Run D1 migrations locally:
+
+```sh
+npm run db:migrate:local
+```
+
+Start the Worker:
+
+```sh
+npm run dev
+```
+
+## Deploy
+
+Apply remote migrations:
+
+```sh
+npm run db:migrate:remote
+```
+
+Deploy to Cloudflare Workers:
+
+```sh
+npm run deploy
+```
+
+Production secrets should be stored as Workers secrets, not committed files.
+
+## Security
+
+- Never commit real provider API keys, Cloudflare API tokens, access tokens, or
+  session secrets.
+- Encrypt provider API keys before storage.
+- Hash AI Connection tokens for lookup and encrypt their display copy.
+- Never log decrypted provider API keys.
+- Return secret-bearing responses with `Cache-Control: no-store`.
+- Keep examples fake and obviously non-production.
