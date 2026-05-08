@@ -3,6 +3,8 @@ export interface Env {
   EMAIL?: SendEmail;
   ENCRYPTION_KEY_B64: string;
   MAIL_FROM?: string;
+  MAIL_WEBHOOK_SECRET?: string;
+  MAIL_WEBHOOK_URL?: string;
   SESSION_SECRET: string;
   TOKEN_PEPPER: string;
 }
@@ -250,7 +252,7 @@ async function createUser(request: Request, env: Env): Promise<Response> {
   if (!isEmailDeliveryConfigured(env)) {
     return html(
       signupPage(
-        "Email verification is not ready yet. A sender email needs to be connected first."
+        "Email verification is not ready yet. Connect Cloudflare Email Sending or a mail relay first."
       ),
       503
     );
@@ -409,7 +411,7 @@ async function startPasswordReset(
   if (!isEmailDeliveryConfigured(env)) {
     return html(
       forgotPasswordPage(
-        "Email sending is not connected yet, so reset codes cannot be sent."
+        "Email sending is not connected yet. Connect Cloudflare Email Sending or a mail relay first."
       ),
       503
     );
@@ -925,10 +927,20 @@ async function hmacSha256Base64Url(
   return bytesToBase64Url(new Uint8Array(signature));
 }
 
-function isEmailDeliveryConfigured(
+function isCloudflareEmailConfigured(
   env: Env
 ): env is Env & { EMAIL: SendEmail; MAIL_FROM: string } {
   return Boolean(env.EMAIL && env.MAIL_FROM);
+}
+
+function isEmailWebhookConfigured(
+  env: Env
+): env is Env & { MAIL_WEBHOOK_SECRET: string; MAIL_WEBHOOK_URL: string } {
+  return Boolean(env.MAIL_WEBHOOK_SECRET && env.MAIL_WEBHOOK_URL);
+}
+
+function isEmailDeliveryConfigured(env: Env): boolean {
+  return isCloudflareEmailConfigured(env) || isEmailWebhookConfigured(env);
 }
 
 function randomSixDigitCode(): string {
@@ -953,7 +965,7 @@ async function hashAuthCode(
 }
 
 async function sendAuthCodeEmail(
-  env: Env & { EMAIL?: SendEmail; MAIL_FROM?: string },
+  env: Env,
   input: {
     to: string;
     code: string;
@@ -974,13 +986,41 @@ async function sendAuthCodeEmail(
   ].join("\n");
 
   try {
-    await env.EMAIL.send({
-      from: env.MAIL_FROM,
-      to: input.to,
-      subject,
-      text
-    });
-    return true;
+    if (isCloudflareEmailConfigured(env)) {
+      await env.EMAIL.send({
+        from: env.MAIL_FROM,
+        to: input.to,
+        subject,
+        text
+      });
+      return true;
+    }
+
+    if (isEmailWebhookConfigured(env)) {
+      const response = await fetch(env.MAIL_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          secret: env.MAIL_WEBHOOK_SECRET,
+          from: env.MAIL_FROM ?? "Volley Fire AI Keys",
+          to: input.to,
+          subject,
+          text
+        })
+      });
+
+      if (!response.ok) return false;
+
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const payload = await response.json<{ ok?: boolean }>().catch(() => null);
+        if (payload?.ok === false) return false;
+      }
+
+      return true;
+    }
+
+    return false;
   } catch {
     return false;
   }

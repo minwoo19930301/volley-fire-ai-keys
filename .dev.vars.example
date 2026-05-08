@@ -1,4 +1,6 @@
 ENCRYPTION_KEY_B64="replace-with-32-random-bytes-base64"
 MAIL_FROM="noreply@example.com"
+MAIL_WEBHOOK_SECRET="replace-with-long-random-mail-webhook-secret"
+MAIL_WEBHOOK_URL="https://script.google.com/macros/s/replace-with-google-apps-script-id/exec"
 SESSION_SECRET="replace-with-long-random-session-secret"
 TOKEN_PEPPER="replace-with-long-random-token-pepper"

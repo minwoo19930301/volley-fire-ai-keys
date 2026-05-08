@@ -83,18 +83,51 @@ integrations may stop working until they use the new prompt.
 
 ## Email Verification
 
-The Worker sends 6-digit signup and password reset codes through Cloudflare's
-`send_email` binding. Set `MAIL_FROM` to a sender address on a domain where
-Cloudflare email sending is active, then deploy with the `EMAIL` binding from
-`wrangler.jsonc`.
+The Worker sends 6-digit signup and password reset codes through either:
+
+- Cloudflare's `send_email` binding. This requires Cloudflare Email Sending,
+  Workers Paid, and a sender address on a Cloudflare DNS domain.
+- A simple HTTPS mail relay configured with `MAIL_WEBHOOK_URL` and
+  `MAIL_WEBHOOK_SECRET`. This is the easiest free path for a small personal
+  deployment, for example with Google Apps Script `MailApp`.
 
 Signup requires email verification. If email delivery is not configured, account
 creation is blocked until a verification code can be sent. Password reset also
 requires email delivery.
 
-`workers.dev` is not a usable sender domain. Use a custom domain on Cloudflare
-DNS, enable Cloudflare email sending for that domain, and set `MAIL_FROM` to an
-address on that domain, such as `no-reply@yourdomain.com`.
+`workers.dev` is not a usable sender domain.
+
+Google Apps Script relay example:
+
+```js
+function doPost(e) {
+  const data = JSON.parse(e.postData.contents || "{}");
+  const expected = PropertiesService.getScriptProperties()
+    .getProperty("MAIL_WEBHOOK_SECRET");
+
+  if (!expected || data.secret !== expected) {
+    return json({ ok: false, error: "unauthorized" });
+  }
+
+  MailApp.sendEmail({
+    to: data.to,
+    subject: data.subject,
+    body: data.text,
+    name: data.from || "Volley Fire AI Keys"
+  });
+
+  return json({ ok: true, remaining: MailApp.getRemainingDailyQuota() });
+}
+
+function json(value) {
+  return ContentService.createTextOutput(JSON.stringify(value))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+```
+
+Deploy the script as a web app, set the script property
+`MAIL_WEBHOOK_SECRET`, then set the Worker secrets `MAIL_WEBHOOK_URL` and
+`MAIL_WEBHOOK_SECRET` to the web app URL and matching secret.
 
 Cloudflare reference:
 [Send emails from Workers](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/)
