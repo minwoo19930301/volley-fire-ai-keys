@@ -2,6 +2,9 @@
 
 An API key rotation gateway for AI agents and services.
 
+[Live service](https://volley-fire.ai-keys.workers.dev) ·
+[Create an account](https://volley-fire.ai-keys.workers.dev/signup)
+
 ![Volley Fire AI Keys three-rank rotation diagram](assets/volley-fire-rotation.png)
 
 Volley Fire AI Keys gives agents one stable AI Connection token. When an
