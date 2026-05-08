@@ -247,44 +247,52 @@ async function createUser(request: Request, env: Env): Promise<Response> {
 
   const passwordHash = await hashPassword(password, env);
 
-  if (isEmailDeliveryConfigured(env)) {
-    const code = randomSixDigitCode();
-    const codeHash = await hashAuthCode("signup", email, code, env);
-    const expiresAt = authCodeExpiry();
-
-    await env.DB.prepare("DELETE FROM signup_verifications WHERE email = ?")
-      .bind(email)
-      .run();
-    await env.DB.prepare(
-      `INSERT INTO signup_verifications
-         (email, password_hash, code_hash, expires_at)
-       VALUES (?, ?, ?, ?)`
-    )
-      .bind(email, passwordHash, codeHash, expiresAt)
-      .run();
-
-    const sent = await sendAuthCodeEmail(env, {
-      to: email,
-      code,
-      purpose: "signup"
-    });
-
-    if (!sent) {
-      return html(
-        signupPage("Could not send a verification code. Try again later."),
-        500
-      );
-    }
-
+  if (!isEmailDeliveryConfigured(env)) {
     return html(
-      verifySignupPage(email, {
-        kind: "success",
-        message: "A 6-digit verification code was sent to your email."
-      })
+      signupPage(
+        "Email verification is not ready yet. A sender email needs to be connected first."
+      ),
+      503
     );
   }
 
-  return createUserWithPasswordHash(env, email, passwordHash);
+  const code = randomSixDigitCode();
+  const codeHash = await hashAuthCode("signup", email, code, env);
+  const expiresAt = authCodeExpiry();
+
+  await env.DB.prepare("DELETE FROM signup_verifications WHERE email = ?")
+    .bind(email)
+    .run();
+  await env.DB.prepare(
+    `INSERT INTO signup_verifications
+       (email, password_hash, code_hash, expires_at)
+     VALUES (?, ?, ?, ?)`
+  )
+    .bind(email, passwordHash, codeHash, expiresAt)
+    .run();
+
+  const sent = await sendAuthCodeEmail(env, {
+    to: email,
+    code,
+    purpose: "signup"
+  });
+
+  if (!sent) {
+    await env.DB.prepare("DELETE FROM signup_verifications WHERE email = ?")
+      .bind(email)
+      .run();
+    return html(
+      signupPage("Could not send a verification code. Try again later."),
+      500
+    );
+  }
+
+  return html(
+    verifySignupPage(email, {
+      kind: "success",
+      message: "A 6-digit verification code was sent to your email."
+    })
+  );
 }
 
 async function createUserWithPasswordHash(
@@ -401,7 +409,7 @@ async function startPasswordReset(
   if (!isEmailDeliveryConfigured(env)) {
     return html(
       forgotPasswordPage(
-        "Email delivery is not configured yet. Set a Cloudflare send_email binding and MAIL_FROM first."
+        "Email sending is not connected yet, so reset codes cannot be sent."
       ),
       503
     );
