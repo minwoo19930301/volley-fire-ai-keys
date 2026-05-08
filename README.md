@@ -81,6 +81,19 @@ The dashboard is for:
 Reissuing an AI Connection token replaces the previous token. Existing AI
 integrations may stop working until they use the new prompt.
 
+## Email Verification
+
+The Worker can send 6-digit signup and password reset codes through Cloudflare
+Email Routing's `send_email` binding. Set `MAIL_FROM` to a sender address on a
+domain where Email Routing is active, then deploy with the `EMAIL` binding from
+`wrangler.jsonc`.
+
+If email delivery is not configured, signup falls back to direct account
+creation so the free demo stays usable. Password reset requires email delivery.
+
+Cloudflare reference:
+[Send emails from Workers](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/)
+
 ## Local Setup
 
 Install dependencies:
@@ -98,6 +111,7 @@ cp .dev.vars.example .dev.vars
 Set real local values for:
 
 - `ENCRYPTION_KEY_B64`
+- `MAIL_FROM`
 - `SESSION_SECRET`
 - `TOKEN_PEPPER`
 

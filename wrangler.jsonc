@@ -6,6 +6,11 @@
   "compatibility_date": "2026-05-05",
   "workers_dev": true,
   "preview_urls": true,
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

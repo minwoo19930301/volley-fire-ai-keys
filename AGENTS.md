@@ -16,6 +16,8 @@ agents and services.
 - Give each user exactly one active AI Connection token.
 - In user-facing UI, present the token as an AI Connection, not as a list of
   agent tokens or access tokens.
+- Use 6-digit email verification for signup and password reset when the
+  Cloudflare `send_email` binding and `MAIL_FROM` sender are configured.
 - Reissuing an AI Connection token deletes or replaces prior access token rows,
   and the UI must warn that previous AI integrations may stop working.
 - Delete keys and access tokens in v1 instead of soft-disabling them.
@@ -27,6 +29,7 @@ agents and services.
 - Never log decrypted provider API keys.
 - Encrypt provider API keys before storage.
 - Hash access tokens for lookup and encrypt their display copy before storage.
+- Hash email verification and password reset codes before storage.
 - Return secret-bearing responses with `Cache-Control: no-store`.
 - Keep examples fake and obviously non-production.
 

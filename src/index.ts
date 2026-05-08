@@ -1,6 +1,8 @@
 export interface Env {
   DB: D1Database;
+  EMAIL?: SendEmail;
   ENCRYPTION_KEY_B64: string;
+  MAIL_FROM?: string;
   SESSION_SECRET: string;
   TOKEN_PEPPER: string;
 }
@@ -47,6 +49,7 @@ const HTML_HEADERS = {
 const SESSION_COOKIE = "vf_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const MIN_PASSWORD_LENGTH = 8;
+const AUTH_CODE_SECONDS = 10 * 60;
 const PUBLIC_BASE_URL = "https://volley-fire.ai-keys.workers.dev";
 const PLATFORM_OPTIONS = [
   ["openai", "OpenAI"],
@@ -121,7 +124,10 @@ export default {
 function isWebAppRoute(pathname: string): boolean {
   return (
     pathname === "/signup" ||
+    pathname === "/signup/verify" ||
     pathname === "/login" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
     pathname === "/logout" ||
     pathname === "/dashboard" ||
     pathname.startsWith("/dashboard/") ||
@@ -147,6 +153,14 @@ async function webApp(
     return createUser(request, env);
   }
 
+  if (request.method === "GET" && url.pathname === "/signup/verify") {
+    return html(verifySignupPage(""));
+  }
+
+  if (request.method === "POST" && url.pathname === "/signup/verify") {
+    return verifySignup(request, env);
+  }
+
   if (request.method === "GET" && url.pathname === "/login") {
     const user = await requireUser(request, env);
     return user ? redirect("/dashboard") : html(loginPage());
@@ -154,6 +168,22 @@ async function webApp(
 
   if (request.method === "POST" && url.pathname === "/login") {
     return login(request, env);
+  }
+
+  if (request.method === "GET" && url.pathname === "/forgot-password") {
+    return html(forgotPasswordPage());
+  }
+
+  if (request.method === "POST" && url.pathname === "/forgot-password") {
+    return startPasswordReset(request, env);
+  }
+
+  if (request.method === "GET" && url.pathname === "/reset-password") {
+    return html(resetPasswordPage(""));
+  }
+
+  if (request.method === "POST" && url.pathname === "/reset-password") {
+    return resetPassword(request, env);
   }
 
   if (request.method === "POST" && url.pathname === "/logout") {
@@ -216,6 +246,52 @@ async function createUser(request: Request, env: Env): Promise<Response> {
   }
 
   const passwordHash = await hashPassword(password, env);
+
+  if (isEmailDeliveryConfigured(env)) {
+    const code = randomSixDigitCode();
+    const codeHash = await hashAuthCode("signup", email, code, env);
+    const expiresAt = authCodeExpiry();
+
+    await env.DB.prepare("DELETE FROM signup_verifications WHERE email = ?")
+      .bind(email)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO signup_verifications
+         (email, password_hash, code_hash, expires_at)
+       VALUES (?, ?, ?, ?)`
+    )
+      .bind(email, passwordHash, codeHash, expiresAt)
+      .run();
+
+    const sent = await sendAuthCodeEmail(env, {
+      to: email,
+      code,
+      purpose: "signup"
+    });
+
+    if (!sent) {
+      return html(
+        signupPage("Could not send a verification code. Try again later."),
+        500
+      );
+    }
+
+    return html(
+      verifySignupPage(email, {
+        kind: "success",
+        message: "A 6-digit verification code was sent to your email."
+      })
+    );
+  }
+
+  return createUserWithPasswordHash(env, email, passwordHash);
+}
+
+async function createUserWithPasswordHash(
+  env: Env,
+  email: string,
+  passwordHash: string
+): Promise<Response> {
   await env.DB.prepare("INSERT INTO users (email, password_hash) VALUES (?, ?)")
     .bind(email, passwordHash)
     .run();
@@ -239,6 +315,60 @@ async function createUser(request: Request, env: Env): Promise<Response> {
   return response;
 }
 
+async function verifySignup(request: Request, env: Env): Promise<Response> {
+  const form = await request.formData();
+  const email = formText(form, "email").toLowerCase();
+  const code = formText(form, "code");
+
+  if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
+    return html(verifySignupPage(email, "Use the 6-digit code from email."), 400);
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT email, password_hash, code_hash, expires_at
+       FROM signup_verifications
+      WHERE email = ?
+      LIMIT 1`
+  )
+    .bind(email)
+    .first<{
+      email: string;
+      password_hash: string;
+      code_hash: string;
+      expires_at: string;
+    }>();
+
+  if (!row || row.expires_at < new Date().toISOString()) {
+    return html(
+      verifySignupPage(email, "That code expired. Create the account again."),
+      400
+    );
+  }
+
+  const expected = await hashAuthCode("signup", email, code, env);
+  if (!timingSafeStringEqual(row.code_hash, expected)) {
+    return html(verifySignupPage(email, "Invalid verification code."), 401);
+  }
+
+  const existingUser = await env.DB.prepare(
+    "SELECT id FROM users WHERE email = ? LIMIT 1"
+  )
+    .bind(email)
+    .first<{ id: number }>();
+
+  if (existingUser) {
+    await env.DB.prepare("DELETE FROM signup_verifications WHERE email = ?")
+      .bind(email)
+      .run();
+    return html(signupPage("An account with that email already exists."), 409);
+  }
+
+  await env.DB.prepare("DELETE FROM signup_verifications WHERE email = ?")
+    .bind(email)
+    .run();
+  return createUserWithPasswordHash(env, email, row.password_hash);
+}
+
 async function login(request: Request, env: Env): Promise<Response> {
   const form = await request.formData();
   const email = formText(form, "email").toLowerCase();
@@ -255,6 +385,122 @@ async function login(request: Request, env: Env): Promise<Response> {
   }
 
   return redirect("/dashboard", await createSessionCookie(row.id, env));
+}
+
+async function startPasswordReset(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const form = await request.formData();
+  const email = formText(form, "email").toLowerCase();
+
+  if (!isValidEmail(email)) {
+    return html(forgotPasswordPage("Use your account email address."), 400);
+  }
+
+  if (!isEmailDeliveryConfigured(env)) {
+    return html(
+      forgotPasswordPage(
+        "Email delivery is not configured yet. Set a Cloudflare send_email binding and MAIL_FROM first."
+      ),
+      503
+    );
+  }
+
+  const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1")
+    .bind(email)
+    .first<{ id: number }>();
+
+  if (user) {
+    const code = randomSixDigitCode();
+    const codeHash = await hashAuthCode("password-reset", email, code, env);
+    const expiresAt = authCodeExpiry();
+
+    await env.DB.prepare("DELETE FROM password_resets WHERE email = ?")
+      .bind(email)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO password_resets (email, code_hash, expires_at)
+       VALUES (?, ?, ?)`
+    )
+      .bind(email, codeHash, expiresAt)
+      .run();
+
+    const sent = await sendAuthCodeEmail(env, {
+      to: email,
+      code,
+      purpose: "password-reset"
+    });
+
+    if (!sent) {
+      return html(
+        forgotPasswordPage("Could not send a reset code. Try again later."),
+        500
+      );
+    }
+  }
+
+  return html(
+    resetPasswordPage(email, {
+      kind: "success",
+      message: "If that account exists, a 6-digit reset code was sent."
+    })
+  );
+}
+
+async function resetPassword(request: Request, env: Env): Promise<Response> {
+  const form = await request.formData();
+  const email = formText(form, "email").toLowerCase();
+  const code = formText(form, "code");
+  const password = formRawText(form, "password");
+  const confirmPassword = formRawText(form, "confirmPassword");
+
+  if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
+    return html(resetPasswordPage(email, "Use your email and 6-digit code."), 400);
+  }
+
+  if (password.length < MIN_PASSWORD_LENGTH || password !== confirmPassword) {
+    return html(
+      resetPasswordPage(
+        email,
+        `New passwords must match and be at least ${MIN_PASSWORD_LENGTH} characters.`
+      ),
+      400
+    );
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT code_hash, expires_at
+       FROM password_resets
+      WHERE email = ?
+      LIMIT 1`
+  )
+    .bind(email)
+    .first<{ code_hash: string; expires_at: string }>();
+
+  if (!row || row.expires_at < new Date().toISOString()) {
+    return html(resetPasswordPage(email, "That code expired."), 400);
+  }
+
+  const expected = await hashAuthCode("password-reset", email, code, env);
+  if (!timingSafeStringEqual(row.code_hash, expected)) {
+    return html(resetPasswordPage(email, "Invalid reset code."), 401);
+  }
+
+  const passwordHash = await hashPassword(password, env);
+  await env.DB.prepare("UPDATE users SET password_hash = ? WHERE email = ?")
+    .bind(passwordHash, email)
+    .run();
+  await env.DB.prepare("DELETE FROM password_resets WHERE email = ?")
+    .bind(email)
+    .run();
+
+  return html(
+    loginPage({
+      kind: "success",
+      message: "Password changed. Log in with the new password."
+    })
+  );
 }
 
 async function createApiKey(
@@ -671,6 +917,67 @@ async function hmacSha256Base64Url(
   return bytesToBase64Url(new Uint8Array(signature));
 }
 
+function isEmailDeliveryConfigured(
+  env: Env
+): env is Env & { EMAIL: SendEmail; MAIL_FROM: string } {
+  return Boolean(env.EMAIL && env.MAIL_FROM);
+}
+
+function randomSixDigitCode(): string {
+  const [value] = crypto.getRandomValues(new Uint32Array(1));
+  return String(value % 1_000_000).padStart(6, "0");
+}
+
+function authCodeExpiry(): string {
+  return new Date(Date.now() + AUTH_CODE_SECONDS * 1000).toISOString();
+}
+
+async function hashAuthCode(
+  purpose: "signup" | "password-reset",
+  email: string,
+  code: string,
+  env: Env
+): Promise<string> {
+  return hmacSha256Base64Url(
+    `${purpose}:${email.toLowerCase()}:${code}`,
+    env.TOKEN_PEPPER
+  );
+}
+
+async function sendAuthCodeEmail(
+  env: Env & { EMAIL?: SendEmail; MAIL_FROM?: string },
+  input: {
+    to: string;
+    code: string;
+    purpose: "signup" | "password-reset";
+  }
+): Promise<boolean> {
+  if (!isEmailDeliveryConfigured(env)) return false;
+
+  const subject =
+    input.purpose === "signup"
+      ? "Your Volley Fire verification code"
+      : "Your Volley Fire password reset code";
+  const text = [
+    `Your Volley Fire AI Keys code is ${input.code}.`,
+    "",
+    `It expires in ${AUTH_CODE_SECONDS / 60} minutes.`,
+    "If you did not request this, ignore this email."
+  ].join("\n");
+
+  try {
+    await env.EMAIL.send({
+      from: env.MAIL_FROM,
+      to: input.to,
+      subject,
+      text
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function encryptApiKey(value: string, env: Env): Promise<string> {
   return encryptSecret(value, env);
 }
@@ -832,18 +1139,54 @@ function signupPage(error?: string): string {
           Password
           <input name="password" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" required>
         </label>
-        <button type="submit">Create account</button>
-        <p>Already have an account? <a href="/login">Log in</a>.</p>
+        <div class="auth-actions">
+          <button type="submit">Create account</button>
+        </div>
+        <p class="auth-links">Already have an account? <a href="/login">Log in</a>.</p>
       </form>
     `
   });
 }
 
-function loginPage(error?: string): string {
+function verifySignupPage(
+  email: string,
+  alert?: string | { kind: "error" | "success"; message: string }
+): string {
+  const alertMessage = typeof alert === "string" ? alert : alert?.message;
+  const alertKind = typeof alert === "string" ? "error" : alert?.kind;
+
+  return layout({
+    title: "Verify Email",
+    body: `
+      ${alertHtml(alertMessage, alertKind ?? "error")}
+      <form class="panel auth" method="post" action="/signup/verify">
+        <label>
+          Email
+          <input name="email" type="email" autocomplete="email" value="${escapeHtml(email)}" required>
+        </label>
+        <label>
+          Verification code
+          <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+        </label>
+        <div class="auth-actions">
+          <button type="submit">Verify code</button>
+        </div>
+        <p class="auth-links"><a href="/signup">Back to create account</a></p>
+      </form>
+    `
+  });
+}
+
+function loginPage(
+  alert?: string | { kind: "error" | "success"; message: string }
+): string {
+  const alertMessage = typeof alert === "string" ? alert : alert?.message;
+  const alertKind = typeof alert === "string" ? "error" : alert?.kind;
+
   return layout({
     title: "Log In",
     body: `
-      ${alertHtml(error, "error")}
+      ${alertHtml(alertMessage, alertKind ?? "error")}
       <form class="panel auth" method="post" action="/login">
         <label>
           Email
@@ -853,8 +1196,67 @@ function loginPage(error?: string): string {
           Password
           <input name="password" type="password" autocomplete="current-password" required>
         </label>
-        <button type="submit">Log in</button>
-        <p>No account yet? <a href="/signup">Create one</a>.</p>
+        <div class="auth-actions">
+          <a class="button-link secondary" href="/forgot-password">Find Pw</a>
+          <button type="submit">Log in</button>
+        </div>
+        <p class="auth-links">No account yet? <a href="/signup">Create one</a>.</p>
+      </form>
+    `
+  });
+}
+
+function forgotPasswordPage(error?: string): string {
+  return layout({
+    title: "Find Password",
+    body: `
+      ${alertHtml(error, "error")}
+      <form class="panel auth" method="post" action="/forgot-password">
+        <label>
+          Email
+          <input name="email" type="email" autocomplete="email" required>
+        </label>
+        <div class="auth-actions">
+          <button type="submit">Send code</button>
+        </div>
+        <p class="auth-links"><a href="/login">Back to log in</a></p>
+      </form>
+    `
+  });
+}
+
+function resetPasswordPage(
+  email: string,
+  alert?: string | { kind: "error" | "success"; message: string }
+): string {
+  const alertMessage = typeof alert === "string" ? alert : alert?.message;
+  const alertKind = typeof alert === "string" ? "error" : alert?.kind;
+
+  return layout({
+    title: "Reset Password",
+    body: `
+      ${alertHtml(alertMessage, alertKind ?? "error")}
+      <form class="panel auth" method="post" action="/reset-password">
+        <label>
+          Email
+          <input name="email" type="email" autocomplete="email" value="${escapeHtml(email)}" required>
+        </label>
+        <label>
+          Reset code
+          <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+        </label>
+        <label>
+          New password
+          <input name="password" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" required>
+        </label>
+        <label>
+          New password again
+          <input name="confirmPassword" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" required>
+        </label>
+        <div class="auth-actions">
+          <button type="submit">Change password</button>
+        </div>
+        <p class="auth-links"><a href="/forgot-password">Send a new code</a></p>
       </form>
     `
   });
@@ -1166,6 +1568,17 @@ function layout(input: {
         padding: 9px 13px;
       }
 
+      .button-link {
+        align-items: center;
+        border-radius: 6px;
+        display: inline-flex;
+        font-size: 14px;
+        font-weight: 700;
+        min-height: 40px;
+        padding: 9px 13px;
+        text-decoration: none;
+      }
+
       .secondary {
         background: #eef1f5;
         color: #26313d;
@@ -1199,6 +1612,17 @@ function layout(input: {
         gap: 12px;
         grid-template-columns: minmax(220px, 360px) auto;
         justify-content: start;
+      }
+
+      .auth-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 4px;
+      }
+
+      .auth-links {
+        text-align: left;
       }
 
       .connection-status p:first-child {
@@ -1311,6 +1735,7 @@ function layout(input: {
       @media (max-width: 720px) {
         header,
         .userbar,
+        .auth-actions,
         .modal-actions,
         .inline-form,
         .grid-form {
@@ -1386,7 +1811,7 @@ function layout(input: {
 }
 
 function headerControls(userEmail?: string): string {
-  if (!userEmail) return `<code>/api/rotate/:platform</code>`;
+  if (!userEmail) return "";
 
   return `
     <div class="userbar">
