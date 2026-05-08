@@ -41,6 +41,19 @@ agents and services.
 ## API Shape
 
 ```http
+POST /api/keys/:platform
+Authorization: Bearer vf_live_xxxxx
+Content-Type: application/json
+```
+
+```json
+{
+  "apiKey": "sk-...",
+  "label": "optional-label"
+}
+```
+
+```http
 GET /api/rotate/:platform
 Authorization: Bearer vf_live_xxxxx
 ```

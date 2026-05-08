@@ -34,6 +34,25 @@ key, and the app repeats the same provider call with a fresh key.
 
 ## Agent API
 
+Add a provider key:
+
+```http
+POST /api/keys/openai
+Authorization: Bearer vf_live_xxxxx
+Content-Type: application/json
+```
+
+```json
+{
+  "apiKey": "sk-fake-example",
+  "label": "optional-label"
+}
+```
+
+The response confirms creation without returning the stored provider key.
+
+Rotate and retrieve the next provider key:
+
 ```http
 GET /api/rotate/openai
 Authorization: Bearer vf_live_xxxxx

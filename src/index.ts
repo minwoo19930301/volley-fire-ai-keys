@@ -65,6 +65,22 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (request.method === "HEAD" && url.pathname === "/") {
+      return redirect("/dashboard");
+    }
+
+    if (request.method === "HEAD" && isWebAppRoute(url.pathname)) {
+      const response = await webApp(
+        new Request(request, { method: "GET" }),
+        env,
+        url
+      );
+      return new Response(null, {
+        status: response.status,
+        headers: response.headers
+      });
+    }
+
     if (request.method === "GET" && url.pathname === "/") {
       return redirect("/dashboard");
     }
@@ -75,6 +91,22 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/api/health") {
       return json({ ok: true, service: "volley-fire-ai-keys" });
+    }
+
+    if (request.method === "HEAD" && url.pathname === "/api/health") {
+      return new Response(null, {
+        status: 200,
+        headers: JSON_HEADERS
+      });
+    }
+
+    const keysMatch = url.pathname.match(/^\/api\/keys\/([a-z0-9._-]+)$/i);
+    if (request.method === "POST" && keysMatch) {
+      return createProviderKeyFromApi(
+        request,
+        env,
+        keysMatch[1].toLowerCase()
+      );
     }
 
     const rotateMatch = url.pathname.match(/^\/api\/rotate\/([a-z0-9._-]+)$/i);
@@ -257,6 +289,70 @@ async function createApiKey(
   return redirect("/dashboard");
 }
 
+async function createProviderKeyFromApi(
+  request: Request,
+  env: Env,
+  platform: string
+): Promise<Response> {
+  const access = await authenticateAccessToken(request, env);
+  if (!access && !readBearerToken(request)) {
+    return json({ error: "missing_bearer_token" }, 401);
+  }
+
+  if (!access) {
+    return json({ error: "invalid_bearer_token" }, 401);
+  }
+
+  const input = await readProviderKeyInput(request);
+  const apiKey = input.apiKey.trim();
+  const label = input.label.trim() || null;
+
+  if (!/^[a-z0-9._-]{1,64}$/.test(platform) || apiKey.length < 8) {
+    return json({ error: "invalid_provider_key_input" }, 400);
+  }
+
+  const encryptedApiKey = await encryptApiKey(apiKey, env);
+  const createdAt = new Date().toISOString();
+
+  await env.DB.prepare(
+    `INSERT INTO api_keys
+       (user_id, platform, label, encrypted_api_key, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  )
+    .bind(access.user_id, platform, label, encryptedApiKey, createdAt)
+    .run();
+
+  return json({ platform, label, createdAt }, 201);
+}
+
+async function readProviderKeyInput(
+  request: Request
+): Promise<{ apiKey: string; label: string }> {
+  const contentType = request.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    const body = (await request.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    return {
+      apiKey:
+        typeof body.apiKey === "string"
+          ? body.apiKey
+          : typeof body.key === "string"
+            ? body.key
+            : "",
+      label: typeof body.label === "string" ? body.label : ""
+    };
+  }
+
+  const form = await request.formData().catch(() => new FormData());
+  return {
+    apiKey: formText(form, "apiKey") || formText(form, "key"),
+    label: formText(form, "label")
+  };
+}
+
 async function deleteApiKey(
   request: Request,
   env: Env,
@@ -311,27 +407,10 @@ async function rotate(
   env: Env,
   platform: string
 ): Promise<Response> {
-  const token = readBearerToken(request);
-  if (!token) {
+  const access = await authenticateAccessToken(request, env);
+  if (!access && !readBearerToken(request)) {
     return json({ error: "missing_bearer_token" }, 401);
   }
-
-  const tokenHash = await sha256Hex(`${env.TOKEN_PEPPER}:${token}`);
-  const access = await env.DB.prepare(
-    `SELECT token.user_id
-       FROM access_tokens token
-      WHERE token.token_hash = ?
-        AND token.id = (
-          SELECT latest.id
-            FROM access_tokens latest
-           WHERE latest.user_id = token.user_id
-           ORDER BY latest.created_at DESC, latest.id DESC
-           LIMIT 1
-        )
-      LIMIT 1`
-  )
-    .bind(tokenHash)
-    .first<{ user_id: number }>();
 
   if (!access) {
     return json({ error: "invalid_bearer_token" }, 401);
@@ -361,6 +440,33 @@ async function rotate(
     .run();
 
   return json({ platform, apiKey, requestedAt });
+}
+
+async function authenticateAccessToken(
+  request: Request,
+  env: Env
+): Promise<{ user_id: number } | null> {
+  const token = readBearerToken(request);
+  if (!token) return null;
+
+  const tokenHash = await sha256Hex(`${env.TOKEN_PEPPER}:${token}`);
+  const access = await env.DB.prepare(
+    `SELECT token.user_id
+       FROM access_tokens token
+      WHERE token.token_hash = ?
+        AND token.id = (
+          SELECT latest.id
+            FROM access_tokens latest
+           WHERE latest.user_id = token.user_id
+           ORDER BY latest.created_at DESC, latest.id DESC
+           LIMIT 1
+        )
+      LIMIT 1`
+  )
+    .bind(tokenHash)
+    .first<{ user_id: number }>();
+
+  return access ?? null;
 }
 
 async function renderDashboard(
@@ -905,12 +1011,18 @@ Authorization: Bearer ${token}
 To get a provider key, call:
 GET ${PUBLIC_BASE_URL}/api/rotate/{platform}
 
-Use platform names like openai, anthropic, google, openrouter, xai, deepseek, groq, mistral, perplexity, or cohere. This is the only active bearer token for this account. Read the JSON response and use only the apiKey value. Do not print, log, or expose the bearer token or returned apiKey.`;
+To add a provider key, call:
+POST ${PUBLIC_BASE_URL}/api/keys/{platform}
+Content-Type: application/json
+
+{"apiKey":"provider-key-value","label":"optional-label"}
+
+Use platform names like openai, anthropic, google, openrouter, xai, deepseek, groq, mistral, perplexity, or cohere. This is the only active bearer token for this account. Read rotate responses and use only the apiKey value. Do not print, log, or expose the bearer token or returned apiKey.`;
 
   return `
     <section class="panel token-output">
       <h2>Copy This Prompt</h2>
-      <textarea readonly rows="11">${escapeHtml(prompt)}</textarea>
+      <textarea readonly rows="16">${escapeHtml(prompt)}</textarea>
     </section>
   `;
 }
