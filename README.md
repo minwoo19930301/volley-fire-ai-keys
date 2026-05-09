@@ -5,6 +5,36 @@ An API key rotation gateway for AI agents and services.
 [Live service](https://volley-fire.ai-keys.workers.dev) ·
 [Create an account](https://volley-fire.ai-keys.workers.dev/signup)
 
+## Provider Key Links
+
+Start with the free-tier or trial-friendly providers before paid-first APIs.
+Use only accounts and keys you are authorized to manage. Provider quotas,
+free tiers, and billing rules change often, so verify each provider's current
+terms before relying on it.
+
+| Priority | Platform slug | Provider | Key link | Access note |
+| --- | --- | --- | --- | --- |
+| 1 | `google` | Google Gemini | [Get key](https://aistudio.google.com/apikey) | Free tier |
+| 2 | `groq` | Groq | [Get key](https://console.groq.com/keys) | Free tier |
+| 3 | `openrouter` | OpenRouter | [Get key](https://openrouter.ai/settings/keys) | Free models available |
+| 4 | `mistral` | Mistral | [Get key](https://console.mistral.ai/api-keys) | Free Experiment / paid |
+| 5 | `cohere` | Cohere | [Get key](https://dashboard.cohere.com/api-keys) | Trial / paid |
+| 6 | `github-models` | GitHub Models | [Open playground](https://github.com/marketplace/models) | GitHub PAT with `models` scope |
+| 7 | `cerebras` | Cerebras | [Get key](https://cloud.cerebras.ai/) | Cloud console |
+| 8 | `cloudflare` | Cloudflare Workers AI | [Create API token](https://dash.cloudflare.com/profile/api-tokens) | Free allocation / paid |
+| 9 | `huggingface` | Hugging Face | [Create token](https://huggingface.co/settings/tokens) | Limited / paid |
+| 10 | `sambanova` | SambaNova | [Get key](https://cloud.sambanova.ai/apis) | Cloud console |
+| 11 | `nvidia` | NVIDIA NIM | [Get key](https://build.nvidia.com/) | Free dev APIs |
+| 12 | `qwen` | Qwen Cloud | [Get key](https://home.qwencloud.com/api-keys) | Pay-as-you-go / plans |
+| 13 | `meta` | Meta Llama API | [Open console](https://llama.developer.meta.com/) | Preview |
+| 14 | `fireworks` | Fireworks AI | [Get key](https://app.fireworks.ai/settings/users/api-keys) | Trial / paid |
+| 15 | `siliconflow` | SiliconFlow | [Get key](https://cloud.siliconflow.com/account/ak) | Free / paid |
+| 16 | `deepseek` | DeepSeek | [Get key](https://platform.deepseek.com/api_keys) | Paid |
+| 17 | `openai` | OpenAI | [Get key](https://platform.openai.com/api-keys) | Billing / credits |
+| 18 | `anthropic` | Anthropic | [Get key](https://console.anthropic.com/settings/keys) | Billing / credits |
+| 19 | `xai` | xAI | [Open console](https://console.x.ai/) | Billing / credits |
+| 20 | `perplexity` | Perplexity | [Open console](https://console.perplexity.ai/) | Billing / credits |
+
 ![Volley Fire AI Keys three-rank rotation diagram](assets/volley-fire-rotation.png)
 
 Volley Fire AI Keys gives agents one stable AI Connection token. When an
@@ -66,8 +96,8 @@ Authorization: Bearer vf_live_xxxxx
 }
 ```
 
-Use platform names such as `openai`, `anthropic`, `google`, `openrouter`,
-`xai`, `deepseek`, `groq`, `mistral`, `perplexity`, or `cohere`.
+Use the platform slugs from the provider key table, such as `google`, `groq`,
+`openrouter`, `openai`, `anthropic`, `xai`, or `perplexity`.
 
 ## Dashboard
 
@@ -85,8 +115,9 @@ integrations may stop working until they use the new prompt.
 
 The Worker sends 6-digit signup and password reset codes through either:
 
-- Cloudflare's `send_email` binding. This requires Cloudflare Email Sending,
-  Workers Paid, and a sender address on a Cloudflare DNS domain.
+- Cloudflare's `send_email` binding. This is useful for verified Email Routing
+  destinations; it is not the easiest path for public signup to arbitrary
+  user emails.
 - A simple HTTPS mail relay configured with `MAIL_WEBHOOK_URL` and
   `MAIL_WEBHOOK_SECRET`. This is the easiest free path for a small personal
   deployment, for example with Google Apps Script `MailApp`.
@@ -128,6 +159,14 @@ function json(value) {
 Deploy the script as a web app, set the script property
 `MAIL_WEBHOOK_SECRET`, then set the Worker secrets `MAIL_WEBHOOK_URL` and
 `MAIL_WEBHOOK_SECRET` to the web app URL and matching secret.
+
+```sh
+printf '%s' 'https://script.google.com/macros/s/your-script-id/exec' \
+  | wrangler secret put MAIL_WEBHOOK_URL
+printf '%s' 'replace-with-a-long-random-secret' \
+  | wrangler secret put MAIL_WEBHOOK_SECRET
+wrangler deploy
+```
 
 Cloudflare reference:
 [Send emails from Workers](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/)

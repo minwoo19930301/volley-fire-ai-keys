@@ -54,16 +54,126 @@ const MIN_PASSWORD_LENGTH = 8;
 const AUTH_CODE_SECONDS = 10 * 60;
 const PUBLIC_BASE_URL = "https://volley-fire.ai-keys.workers.dev";
 const PLATFORM_OPTIONS = [
-  ["openai", "OpenAI"],
-  ["anthropic", "Anthropic"],
-  ["google", "Google Gemini"],
-  ["openrouter", "OpenRouter"],
-  ["xai", "xAI"],
-  ["deepseek", "DeepSeek"],
-  ["groq", "Groq"],
-  ["mistral", "Mistral"],
-  ["perplexity", "Perplexity"],
-  ["cohere", "Cohere"]
+  {
+    value: "google",
+    label: "Google Gemini",
+    keyUrl: "https://aistudio.google.com/apikey",
+    access: "free tier"
+  },
+  {
+    value: "groq",
+    label: "Groq",
+    keyUrl: "https://console.groq.com/keys",
+    access: "free tier"
+  },
+  {
+    value: "openrouter",
+    label: "OpenRouter",
+    keyUrl: "https://openrouter.ai/settings/keys",
+    access: "free models"
+  },
+  {
+    value: "mistral",
+    label: "Mistral",
+    keyUrl: "https://console.mistral.ai/api-keys",
+    access: "free experiment / paid"
+  },
+  {
+    value: "cohere",
+    label: "Cohere",
+    keyUrl: "https://dashboard.cohere.com/api-keys",
+    access: "trial / paid"
+  },
+  {
+    value: "github-models",
+    label: "GitHub Models",
+    keyUrl: "https://github.com/marketplace/models",
+    access: "GitHub PAT"
+  },
+  {
+    value: "cerebras",
+    label: "Cerebras",
+    keyUrl: "https://cloud.cerebras.ai/",
+    access: "cloud console"
+  },
+  {
+    value: "cloudflare",
+    label: "Cloudflare Workers AI",
+    keyUrl: "https://dash.cloudflare.com/profile/api-tokens",
+    access: "free allocation / paid"
+  },
+  {
+    value: "huggingface",
+    label: "Hugging Face",
+    keyUrl: "https://huggingface.co/settings/tokens",
+    access: "limited / paid"
+  },
+  {
+    value: "sambanova",
+    label: "SambaNova",
+    keyUrl: "https://cloud.sambanova.ai/apis",
+    access: "cloud console"
+  },
+  {
+    value: "nvidia",
+    label: "NVIDIA NIM",
+    keyUrl: "https://build.nvidia.com/",
+    access: "free dev APIs"
+  },
+  {
+    value: "qwen",
+    label: "Qwen Cloud",
+    keyUrl: "https://home.qwencloud.com/api-keys",
+    access: "pay-as-you-go / plans"
+  },
+  {
+    value: "meta",
+    label: "Meta Llama API",
+    keyUrl: "https://llama.developer.meta.com/",
+    access: "preview"
+  },
+  {
+    value: "fireworks",
+    label: "Fireworks AI",
+    keyUrl: "https://app.fireworks.ai/settings/users/api-keys",
+    access: "trial / paid"
+  },
+  {
+    value: "siliconflow",
+    label: "SiliconFlow",
+    keyUrl: "https://cloud.siliconflow.com/account/ak",
+    access: "free / paid"
+  },
+  {
+    value: "deepseek",
+    label: "DeepSeek",
+    keyUrl: "https://platform.deepseek.com/api_keys",
+    access: "paid"
+  },
+  {
+    value: "openai",
+    label: "OpenAI",
+    keyUrl: "https://platform.openai.com/api-keys",
+    access: "billing / credits"
+  },
+  {
+    value: "anthropic",
+    label: "Anthropic",
+    keyUrl: "https://console.anthropic.com/settings/keys",
+    access: "billing / credits"
+  },
+  {
+    value: "xai",
+    label: "xAI",
+    keyUrl: "https://console.x.ai/",
+    access: "billing / credits"
+  },
+  {
+    value: "perplexity",
+    label: "Perplexity",
+    keyUrl: "https://console.perplexity.ai/",
+    access: "billing / credits"
+  }
 ] as const;
 
 export default {
@@ -252,7 +362,7 @@ async function createUser(request: Request, env: Env): Promise<Response> {
   if (!isEmailDeliveryConfigured(env)) {
     return html(
       signupPage(
-        "Email verification is not ready yet. Connect Cloudflare Email Sending or a mail relay first."
+        "Email delivery is not connected on this deployment yet. Free setup needs an HTTPS mail relay; set MAIL_WEBHOOK_URL and MAIL_WEBHOOK_SECRET first."
       ),
       503
     );
@@ -411,7 +521,7 @@ async function startPasswordReset(
   if (!isEmailDeliveryConfigured(env)) {
     return html(
       forgotPasswordPage(
-        "Email sending is not connected yet. Connect Cloudflare Email Sending or a mail relay first."
+        "Email delivery is not connected on this deployment yet. Free setup needs an HTTPS mail relay; set MAIL_WEBHOOK_URL and MAIL_WEBHOOK_SECRET first."
       ),
       503
     );
@@ -1338,6 +1448,13 @@ function dashboardPage(input: {
               ${platformOptionsHtml()}
               <option value="custom">Custom...</option>
             </select>
+            <span class="field-help">
+              Key link:
+              <a id="platformKeyLink" href="${escapeHtml(PLATFORM_OPTIONS[0].keyUrl)}" target="_blank" rel="noopener noreferrer">
+                ${escapeHtml(PLATFORM_OPTIONS[0].label)}
+              </a>
+              <span id="platformAccess">(${escapeHtml(PLATFORM_OPTIONS[0].access)})</span>
+            </span>
           </label>
           <label id="customPlatformField" class="is-hidden">
             Custom platform
@@ -1365,7 +1482,7 @@ function dashboardPage(input: {
 
 function platformOptionsHtml(): string {
   return PLATFORM_OPTIONS.map(
-    ([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`
+    (option) => `<option value="${escapeHtml(option.value)}" data-key-url="${escapeHtml(option.keyUrl)}" data-access="${escapeHtml(option.access)}">${escapeHtml(option.label)}</option>`
   ).join("");
 }
 
@@ -1467,7 +1584,7 @@ Content-Type: application/json
 
 {"apiKey":"provider-key-value","label":"optional-label"}
 
-Use platform names like openai, anthropic, google, openrouter, xai, deepseek, groq, mistral, perplexity, or cohere. This is the only active bearer token for this account. Read rotate responses and use only the apiKey value. Do not print, log, or expose the bearer token or returned apiKey.`;
+Use platform names like ${platformNamesText()}. This is the only active bearer token for this account. Read rotate responses and use only the apiKey value. Do not print, log, or expose the bearer token or returned apiKey.`;
 
   return `
     <section class="panel token-output">
@@ -1475,6 +1592,10 @@ Use platform names like openai, anthropic, google, openrouter, xai, deepseek, gr
       <textarea readonly rows="16">${escapeHtml(prompt)}</textarea>
     </section>
   `;
+}
+
+function platformNamesText(): string {
+  return PLATFORM_OPTIONS.map((option) => option.value).join(", ");
 }
 
 function alertHtml(
@@ -1650,6 +1771,17 @@ function layout(input: {
         justify-self: start;
       }
 
+      .field-help {
+        color: #596779;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.4;
+      }
+
+      .field-help a {
+        font-weight: 700;
+      }
+
       .span-2 {
         grid-column: 1 / -1;
       }
@@ -1814,6 +1946,8 @@ function layout(input: {
       const platformPreset = document.getElementById("platformPreset");
       const customPlatformField = document.getElementById("customPlatformField");
       const customPlatformInput = document.getElementById("customPlatformInput");
+      const platformKeyLink = document.getElementById("platformKeyLink");
+      const platformAccess = document.getElementById("platformAccess");
 
       function syncPlatformInput() {
         if (!platformPreset || !customPlatformField || !customPlatformInput) return;
@@ -1821,6 +1955,23 @@ function layout(input: {
         customPlatformField.classList.toggle("is-hidden", !isCustom);
         customPlatformInput.required = isCustom;
         if (isCustom) customPlatformInput.focus();
+
+        const selectedOption = platformPreset.selectedOptions[0];
+        const keyUrl = selectedOption ? selectedOption.dataset.keyUrl : "";
+        const access = selectedOption ? selectedOption.dataset.access : "";
+        if (platformKeyLink) {
+          platformKeyLink.hidden = isCustom || !keyUrl;
+          platformKeyLink.href = keyUrl || "#";
+          platformKeyLink.textContent = isCustom
+            ? "custom provider"
+            : selectedOption
+              ? selectedOption.textContent || ""
+              : "";
+        }
+        if (platformAccess) {
+          platformAccess.hidden = isCustom || !access;
+          platformAccess.textContent = access ? "(" + access + ")" : "";
+        }
       }
 
       if (platformPreset) {
