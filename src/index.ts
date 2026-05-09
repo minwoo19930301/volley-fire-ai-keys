@@ -1063,9 +1063,9 @@ function isEmailWebhookConfigured(
 
 function isEmailDeliveryConfigured(env: Env): boolean {
   return (
+    isEmailWebhookConfigured(env) ||
     isCloudflareEmailConfigured(env) ||
-    isMailjetConfigured(env) ||
-    isEmailWebhookConfigured(env)
+    isMailjetConfigured(env)
   );
 }
 
@@ -1112,24 +1112,6 @@ async function sendAuthCodeEmail(
   ].join("\n");
 
   try {
-    if (isMailjetConfigured(env)) {
-      return sendMailjetEmail(env, {
-        to: input.to,
-        subject,
-        text
-      });
-    }
-
-    if (isCloudflareEmailConfigured(env)) {
-      await env.EMAIL.send({
-        from: env.MAIL_FROM,
-        to: input.to,
-        subject,
-        text
-      });
-      return true;
-    }
-
     if (isEmailWebhookConfigured(env)) {
       const response = await fetch(env.MAIL_WEBHOOK_URL, {
         method: "POST",
@@ -1152,6 +1134,24 @@ async function sendAuthCodeEmail(
       }
 
       return true;
+    }
+
+    if (isCloudflareEmailConfigured(env)) {
+      await env.EMAIL.send({
+        from: env.MAIL_FROM,
+        to: input.to,
+        subject,
+        text
+      });
+      return true;
+    }
+
+    if (isMailjetConfigured(env)) {
+      return sendMailjetEmail(env, {
+        to: input.to,
+        subject,
+        text
+      });
     }
 
     return false;

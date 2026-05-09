@@ -116,17 +116,19 @@ integrations may stop working until they use the new prompt.
 The Worker sends 6-digit signup and password reset codes through one of these
 providers:
 
-- Mailjet Send API configured with `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and
-  `MAIL_FROM`. This is the recommended free setup for this project.
+- A simple HTTPS mail relay configured with `MAIL_WEBHOOK_URL` and
+  `MAIL_WEBHOOK_SECRET`, for example with Google Apps Script `MailApp`.
 - Cloudflare's `send_email` binding. This is useful for verified Email Routing
   destinations; it is not the easiest path for public signup to arbitrary
   user emails.
-- A simple HTTPS mail relay configured with `MAIL_WEBHOOK_URL` and
-  `MAIL_WEBHOOK_SECRET`, for example with Google Apps Script `MailApp`.
+- Mailjet Send API configured with `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and
+  `MAIL_FROM`.
 
 Signup requires email verification. If email delivery is not configured, account
 creation is blocked until a verification code can be sent. Password reset also
 requires email delivery.
+
+If multiple providers are configured, the HTTPS mail relay is tried first.
 
 `workers.dev` is not a usable sender domain.
 
