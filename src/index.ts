@@ -3,6 +3,8 @@ export interface Env {
   EMAIL?: SendEmail;
   ENCRYPTION_KEY_B64: string;
   MAIL_FROM?: string;
+  MAILJET_API_KEY?: string;
+  MAILJET_SECRET_KEY?: string;
   MAIL_WEBHOOK_SECRET?: string;
   MAIL_WEBHOOK_URL?: string;
   SESSION_SECRET: string;
@@ -362,7 +364,7 @@ async function createUser(request: Request, env: Env): Promise<Response> {
   if (!isEmailDeliveryConfigured(env)) {
     return html(
       signupPage(
-        "Email delivery is not connected on this deployment yet. Free setup needs an HTTPS mail relay; set MAIL_WEBHOOK_URL and MAIL_WEBHOOK_SECRET first."
+        "Email delivery is not connected on this deployment yet. Set Mailjet secrets or an HTTPS mail relay first."
       ),
       503
     );
@@ -521,7 +523,7 @@ async function startPasswordReset(
   if (!isEmailDeliveryConfigured(env)) {
     return html(
       forgotPasswordPage(
-        "Email delivery is not connected on this deployment yet. Free setup needs an HTTPS mail relay; set MAIL_WEBHOOK_URL and MAIL_WEBHOOK_SECRET first."
+        "Email delivery is not connected on this deployment yet. Set Mailjet secrets or an HTTPS mail relay first."
       ),
       503
     );
@@ -1043,6 +1045,16 @@ function isCloudflareEmailConfigured(
   return Boolean(env.EMAIL && env.MAIL_FROM);
 }
 
+function isMailjetConfigured(
+  env: Env
+): env is Env & {
+  MAILJET_API_KEY: string;
+  MAILJET_SECRET_KEY: string;
+  MAIL_FROM: string;
+} {
+  return Boolean(env.MAILJET_API_KEY && env.MAILJET_SECRET_KEY && env.MAIL_FROM);
+}
+
 function isEmailWebhookConfigured(
   env: Env
 ): env is Env & { MAIL_WEBHOOK_SECRET: string; MAIL_WEBHOOK_URL: string } {
@@ -1050,7 +1062,11 @@ function isEmailWebhookConfigured(
 }
 
 function isEmailDeliveryConfigured(env: Env): boolean {
-  return isCloudflareEmailConfigured(env) || isEmailWebhookConfigured(env);
+  return (
+    isCloudflareEmailConfigured(env) ||
+    isMailjetConfigured(env) ||
+    isEmailWebhookConfigured(env)
+  );
 }
 
 function randomSixDigitCode(): string {
@@ -1096,6 +1112,14 @@ async function sendAuthCodeEmail(
   ].join("\n");
 
   try {
+    if (isMailjetConfigured(env)) {
+      return sendMailjetEmail(env, {
+        to: input.to,
+        subject,
+        text
+      });
+    }
+
     if (isCloudflareEmailConfigured(env)) {
       await env.EMAIL.send({
         from: env.MAIL_FROM,
@@ -1134,6 +1158,44 @@ async function sendAuthCodeEmail(
   } catch {
     return false;
   }
+}
+
+async function sendMailjetEmail(
+  env: Env & {
+    MAILJET_API_KEY: string;
+    MAILJET_SECRET_KEY: string;
+    MAIL_FROM: string;
+  },
+  input: { to: string; subject: string; text: string }
+): Promise<boolean> {
+  const response = await fetch("https://api.mailjet.com/v3.1/send", {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${btoa(`${env.MAILJET_API_KEY}:${env.MAILJET_SECRET_KEY}`)}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      Messages: [
+        {
+          From: {
+            Email: env.MAIL_FROM,
+            Name: "Volley Fire AI Keys"
+          },
+          To: [{ Email: input.to }],
+          Subject: input.subject,
+          TextPart: input.text
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) return false;
+
+  const payload = await response
+    .json<{ Messages?: Array<{ Status?: string }> }>()
+    .catch(() => null);
+  const status = payload?.Messages?.[0]?.Status?.toLowerCase();
+  return !status || status === "success";
 }
 
 async function encryptApiKey(value: string, env: Env): Promise<string> {

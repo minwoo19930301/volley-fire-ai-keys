@@ -1,5 +1,7 @@
 ENCRYPTION_KEY_B64="replace-with-32-random-bytes-base64"
 MAIL_FROM="noreply@example.com"
+MAILJET_API_KEY="replace-with-mailjet-api-key"
+MAILJET_SECRET_KEY="replace-with-mailjet-secret-key"
 MAIL_WEBHOOK_SECRET="replace-with-long-random-mail-webhook-secret"
 MAIL_WEBHOOK_URL="https://script.google.com/macros/s/replace-with-google-apps-script-id/exec"
 SESSION_SECRET="replace-with-long-random-session-secret"
