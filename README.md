@@ -5,12 +5,60 @@ An API key rotation gateway for AI agents and services.
 [Live service](https://volley-fire.ai-keys.workers.dev) ·
 [Create an account](https://volley-fire.ai-keys.workers.dev/signup)
 
+![Volley Fire AI Keys three-rank rotation diagram](assets/volley-fire-rotation.png)
+
+Volley Fire AI Keys gives agents one stable AI Connection token. When an
+external app or AI agent asks for a provider key, the Worker returns one
+least-recently-requested key for that platform and updates its request
+timestamp. The gateway does not call providers; it only hands out the next key
+for the caller to use.
+
+## How It Works
+
+Add several free or low-quota provider API keys to the dashboard under the same
+platform. Your third-party app or AI agent keeps one AI Connection token for
+Volley Fire AI Keys, asks the gateway for a provider key, then uses that key
+with the real AI service.
+
+When that provider key is blocked, exhausted, or no longer useful, the app asks
+Volley Fire AI Keys again. The gateway returns the next least-recently-requested
+key, and the app repeats the same provider call with a fresh key.
+
+## Live Service Guide
+
+1. Create an account at
+   [volley-fire.ai-keys.workers.dev/signup](https://volley-fire.ai-keys.workers.dev/signup).
+2. Verify your email with the 6-digit code.
+3. Add provider API keys in the dashboard. Start with providers that have free
+   tiers or trial-friendly access.
+4. Copy the AI Connection prompt from the dashboard.
+5. Paste that prompt into the agent or external app that needs provider keys.
+
+The copied prompt gives the agent the base URL, your bearer token, and the
+rotate endpoint. It looks like this, with your real token filled in by the
+dashboard:
+
+```text
+Use this AI Connection whenever you need an AI provider API key.
+
+Base URL: https://volley-fire.ai-keys.workers.dev
+Authorization: Bearer vf_live_xxxxx
+
+To get a provider key, call:
+GET https://volley-fire.ai-keys.workers.dev/api/rotate/{platform}
+
+Read the JSON response and use only the apiKey value. Do not print, log, or
+expose the bearer token or returned apiKey.
+```
+
+For normal use, you do not need to hand-write API calls. Sign up, add keys,
+copy the AI Connection prompt, and give that prompt to the AI agent.
+
 ## Provider Key Links
 
-Start with the free-tier or trial-friendly providers before paid-first APIs.
-Use only accounts and keys you are authorized to manage. Provider quotas,
-free tiers, and billing rules change often, so verify each provider's current
-terms before relying on it.
+Use only accounts and keys you are authorized to manage. Provider quotas, free
+tiers, and billing rules change often, so verify each provider's current terms
+before relying on it.
 
 | Priority | Platform slug | Provider | Key link | Access note |
 | --- | --- | --- | --- | --- |
@@ -35,51 +83,7 @@ terms before relying on it.
 | 19 | `xai` | xAI | [Open console](https://console.x.ai/) | Billing / credits |
 | 20 | `perplexity` | Perplexity | [Open console](https://console.perplexity.ai/) | Billing / credits |
 
-![Volley Fire AI Keys three-rank rotation diagram](assets/volley-fire-rotation.png)
-
-Volley Fire AI Keys gives agents one stable AI Connection token. When an
-external app or AI agent asks for a provider key, the Worker returns one
-least-recently-requested key for that platform and updates its request
-timestamp. The gateway does not call providers; it only hands out the next key
-for the caller to use.
-
-## How It Works
-
-Add several free or low-quota provider API keys to the dashboard under the same
-platform. Your third-party app or AI agent keeps one AI Connection token for
-Volley Fire AI Keys, asks the gateway for a provider key, then uses that key
-with the real AI service.
-
-When that provider key is blocked, exhausted, or no longer useful, the app asks
-Volley Fire AI Keys again. The gateway returns the next least-recently-requested
-key, and the app repeats the same provider call with a fresh key.
-
-## Rotation Rule
-
-- Return one provider key per rotate request.
-- Rotate keys by `last_requested_at`.
-- Treat `NULL last_requested_at` as the oldest state.
-- Keep v1 state simple: no cooldowns, cycles, disabled flags, or soft revokes.
-- Delete provider keys and AI Connection tokens when removing them.
-
-## Agent API
-
-Add a provider key:
-
-```http
-POST /api/keys/openai
-Authorization: Bearer vf_live_xxxxx
-Content-Type: application/json
-```
-
-```json
-{
-  "apiKey": "sk-fake-example",
-  "label": "optional-label"
-}
-```
-
-The response confirms creation without returning the stored provider key.
+## API Quick Reference
 
 Rotate and retrieve the next provider key:
 
@@ -96,149 +100,24 @@ Authorization: Bearer vf_live_xxxxx
 }
 ```
 
-Use the platform slugs from the provider key table, such as `google`, `groq`,
-`openrouter`, `openai`, `anthropic`, `xai`, or `perplexity`.
+Add a provider key:
 
-## Dashboard
-
-The dashboard is for:
-
-- adding encrypted provider keys
-- deleting provider keys
-- copying the user's AI Connection prompt
-- reissuing the single active AI Connection token
-
-Reissuing an AI Connection token replaces the previous token. Existing AI
-integrations may stop working until they use the new prompt.
-
-## Email Verification
-
-The Worker sends 6-digit signup and password reset codes through one of these
-providers:
-
-- A simple HTTPS mail relay configured with `MAIL_WEBHOOK_URL` and
-  `MAIL_WEBHOOK_SECRET`, for example with Google Apps Script `MailApp`.
-- Cloudflare's `send_email` binding. This is useful for verified Email Routing
-  destinations; it is not the easiest path for public signup to arbitrary
-  user emails.
-- Mailjet Send API configured with `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and
-  `MAIL_FROM`.
-
-Signup requires email verification. If email delivery is not configured, account
-creation is blocked until a verification code can be sent. Password reset also
-requires email delivery.
-
-If multiple providers are configured, the HTTPS mail relay is tried first.
-
-`workers.dev` is not a usable sender domain.
-
-Mailjet setup:
-
-```sh
-printf '%s' 'mailjet-api-key' | wrangler secret put MAILJET_API_KEY
-printf '%s' 'mailjet-secret-key' | wrangler secret put MAILJET_SECRET_KEY
-printf '%s' 'noreply@example.com' | wrangler secret put MAIL_FROM
-wrangler deploy
+```http
+POST /api/keys/openai
+Authorization: Bearer vf_live_xxxxx
+Content-Type: application/json
 ```
 
-Google Apps Script relay example:
-
-```js
-function doPost(e) {
-  const data = JSON.parse(e.postData.contents || "{}");
-  const expected = PropertiesService.getScriptProperties()
-    .getProperty("MAIL_WEBHOOK_SECRET");
-
-  if (!expected || data.secret !== expected) {
-    return json({ ok: false, error: "unauthorized" });
-  }
-
-  MailApp.sendEmail({
-    to: data.to,
-    subject: data.subject,
-    body: data.text,
-    name: data.from || "Volley Fire AI Keys"
-  });
-
-  return json({ ok: true, remaining: MailApp.getRemainingDailyQuota() });
-}
-
-function json(value) {
-  return ContentService.createTextOutput(JSON.stringify(value))
-    .setMimeType(ContentService.MimeType.JSON);
+```json
+{
+  "apiKey": "sk-fake-example",
+  "label": "optional-label"
 }
 ```
 
-Deploy the script as a web app, set the script property
-`MAIL_WEBHOOK_SECRET`, then set the Worker secrets `MAIL_WEBHOOK_URL` and
-`MAIL_WEBHOOK_SECRET` to the web app URL and matching secret.
+## More Docs
 
-```sh
-printf '%s' 'https://script.google.com/macros/s/your-script-id/exec' \
-  | wrangler secret put MAIL_WEBHOOK_URL
-printf '%s' 'replace-with-a-long-random-secret' \
-  | wrangler secret put MAIL_WEBHOOK_SECRET
-wrangler deploy
-```
-
-Cloudflare reference:
-[Send emails from Workers](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/)
-
-## Local Setup
-
-Install dependencies:
-
-```sh
-npm install
-```
-
-Create local secrets:
-
-```sh
-cp .dev.vars.example .dev.vars
-```
-
-Set real local values for:
-
-- `ENCRYPTION_KEY_B64`
-- `MAIL_FROM`
-- `SESSION_SECRET`
-- `TOKEN_PEPPER`
-
-Run D1 migrations locally:
-
-```sh
-npm run db:migrate:local
-```
-
-Start the Worker:
-
-```sh
-npm run dev
-```
-
-## Deploy
-
-Apply remote migrations:
-
-```sh
-npm run db:migrate:remote
-```
-
-Deploy to Cloudflare Workers:
-
-```sh
-npm run deploy
-```
-
-Production secrets should be stored as Workers secrets, not committed files.
-
-## Security
-
-- Never commit real provider API keys, Cloudflare API tokens, access tokens, or
-  session secrets.
-- Encrypt provider API keys before storage.
-- Hash AI Connection tokens for lookup and encrypt their display copy.
-- Never log decrypted provider API keys.
-- Return secret-bearing responses with `Cache-Control: no-store`.
-- Keep examples fake and obviously non-production.
+- [Technical notes](docs/technical-notes.md): rotation details, email delivery,
+  local setup, deployment, and security rules.
+- [Agent instructions](AGENTS.md): development rules for agents working on this
+  repository.
