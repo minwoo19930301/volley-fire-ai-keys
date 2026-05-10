@@ -1359,10 +1359,12 @@ function signupPage(error?: string): string {
           Password
           <input name="password" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" required>
         </label>
-        <div class="auth-actions">
-          <button type="submit">Create account</button>
+        <div class="auth-footer">
+          <p class="auth-links">Already have an account? <a href="/login">Log in</a>.</p>
+          <div class="auth-actions">
+            <button type="submit">Create account</button>
+          </div>
         </div>
-        <p class="auth-links">Already have an account? <a href="/login">Log in</a>.</p>
       </form>
     `
   });
