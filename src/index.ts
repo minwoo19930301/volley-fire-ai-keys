@@ -1416,11 +1416,13 @@ function loginPage(
           Password
           <input name="password" type="password" autocomplete="current-password" required>
         </label>
-        <div class="auth-actions">
-          <a class="button-link secondary" href="/forgot-password">Find Pw</a>
-          <button type="submit">Log in</button>
+        <div class="auth-footer">
+          <p class="auth-links">No account yet? <a href="/signup">Create one</a>.</p>
+          <div class="auth-actions">
+            <a class="button-link secondary" href="/forgot-password">Find Pw</a>
+            <button type="submit">Log in</button>
+          </div>
         </div>
-        <p class="auth-links">No account yet? <a href="/signup">Create one</a>.</p>
       </form>
     `
   });
@@ -1863,6 +1865,19 @@ function layout(input: {
         margin-top: 4px;
       }
 
+      .auth-footer {
+        align-items: center;
+        display: flex;
+        gap: 14px;
+        justify-content: space-between;
+        margin-top: 4px;
+      }
+
+      .auth-footer .auth-actions,
+      .auth-footer .auth-links {
+        margin: 0;
+      }
+
       .auth-links {
         text-align: left;
       }
@@ -1992,6 +2007,11 @@ function layout(input: {
 
         .span-2 {
           grid-column: auto;
+        }
+
+        .auth-footer {
+          align-items: stretch;
+          flex-direction: column-reverse;
         }
       }
     </style>
