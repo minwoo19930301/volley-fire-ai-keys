@@ -1390,10 +1390,12 @@ function verifySignupPage(
           Verification code
           <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
         </label>
-        <div class="auth-actions">
-          <button type="submit">Verify code</button>
+        <div class="auth-footer">
+          <p class="auth-links"><a href="/signup">Back to create account</a></p>
+          <div class="auth-actions">
+            <button type="submit">Verify code</button>
+          </div>
         </div>
-        <p class="auth-links"><a href="/signup">Back to create account</a></p>
       </form>
     `
   });
@@ -1440,10 +1442,12 @@ function forgotPasswordPage(error?: string): string {
           Email
           <input name="email" type="email" autocomplete="email" required>
         </label>
-        <div class="auth-actions">
-          <button type="submit">Send code</button>
+        <div class="auth-footer">
+          <p class="auth-links"><a href="/login">Back to log in</a></p>
+          <div class="auth-actions">
+            <button type="submit">Send code</button>
+          </div>
         </div>
-        <p class="auth-links"><a href="/login">Back to log in</a></p>
       </form>
     `
   });
@@ -1477,10 +1481,12 @@ function resetPasswordPage(
           New password again
           <input name="confirmPassword" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" required>
         </label>
-        <div class="auth-actions">
-          <button type="submit">Change password</button>
+        <div class="auth-footer">
+          <p class="auth-links"><a href="/forgot-password">Send a new code</a></p>
+          <div class="auth-actions">
+            <button type="submit">Change password</button>
+          </div>
         </div>
-        <p class="auth-links"><a href="/forgot-password">Send a new code</a></p>
       </form>
     `
   });
@@ -1763,7 +1769,8 @@ function layout(input: {
       }
 
       .auth {
-        max-width: 420px;
+        max-width: 620px;
+        width: 100%;
       }
 
       label {
@@ -1801,6 +1808,7 @@ function layout(input: {
         font-weight: 700;
         min-height: 40px;
         padding: 9px 13px;
+        white-space: nowrap;
       }
 
       .button-link {
@@ -1812,6 +1820,7 @@ function layout(input: {
         min-height: 40px;
         padding: 9px 13px;
         text-decoration: none;
+        white-space: nowrap;
       }
 
       .secondary {
@@ -1869,9 +1878,9 @@ function layout(input: {
 
       .auth-footer {
         align-items: center;
-        display: flex;
+        display: grid;
         gap: 14px;
-        justify-content: space-between;
+        grid-template-columns: minmax(0, 1fr) auto;
         margin-top: 4px;
       }
 
@@ -2013,7 +2022,11 @@ function layout(input: {
 
         .auth-footer {
           align-items: stretch;
-          flex-direction: column-reverse;
+          grid-template-columns: 1fr;
+        }
+
+        .auth-footer .auth-actions {
+          justify-content: flex-start;
         }
       }
     </style>
